@@ -62,7 +62,7 @@ function buildTeam({ roster, matchup, users, playersMap, rosterPositions }) {
     const realPos = p?.position;
     const pts = +(pointsMap[playerId] || 0).toFixed(1);
     const label = slotLabel(slot);
-    const row = { pos: label, name, pts, ...fillPlaceholderProjAndStatus(pts) };
+    const row = { pos: label, name, pts, team: p?.team, ...fillPlaceholderProjAndStatus(pts) };
     if (label === "FLX" && realPos) row.realPos = realPos;
     return row;
   }
