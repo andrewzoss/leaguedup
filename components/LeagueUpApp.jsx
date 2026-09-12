@@ -1,4 +1,4 @@
-\"use client\";
+"use client";
 
 import React, { useState } from "react";
 import { GripVertical, RefreshCw, X } from "lucide-react";
@@ -881,8 +881,27 @@ const UNKNOWN_GAME = {
   date: "-",
   timeShort: "-",
 };
+
+// CURRENT_GAMES/CURRENT_TEAM_INFO start out pointing at the fake mock
+// schedule above, and get swapped for the real ESPN schedule once it loads
+// (see setRealSchedule, called from the root component's fetch effect).
+// Every place that needs "the schedule" reads through these, not the raw
+// GAMES/TEAM_INFO constants, so the swap is invisible to the rest of the app.
+let CURRENT_GAMES = GAMES;
+let CURRENT_TEAM_INFO = TEAM_INFO;
+
+function setRealSchedule(games) {
+  CURRENT_GAMES = games;
+  const info = {};
+  games.forEach((g) => {
+    info[g.home] = { opp: g.away, game: g };
+    info[g.away] = { opp: g.home, game: g };
+  });
+  CURRENT_TEAM_INFO = info;
+}
+
 function getTeamInfo(team) {
-  return TEAM_INFO[team] || { opp: "?", game: UNKNOWN_GAME };
+  return CURRENT_TEAM_INFO[team] || { opp: "?", game: UNKNOWN_GAME };
 }
 
 // Real data (from Sleeper etc.) carries the player's actual NFL team on
@@ -918,32 +937,53 @@ function applyWeekView(team, week) {
   return { ...team, starters, bench, total };
 }
 
-// Deterministic mock game context - real data would pull live score/clock straight
-// from each platform's live scoring feed instead of being derived like this.
+// Game context for a player: real live score/clock/status when the real
+// ESPN schedule has loaded (game.isReal), otherwise a deterministic fake
+// derived from the game id, as a placeholder while loading or as a
+// fallback for mock data.
 function mockGame(p) {
   const team = getPlayerTeam(p);
   const { opp, game } = getTeamInfo(team);
-  const seasonAvg = Math.max(0, +(p.proj + (((hashStr(p.name) % 7) - 3) * 0.5)).toFixed(1));
-  const lastWeek = Math.max(0, +(p.proj + ((((hashStr(p.name) >> 2) % 9) - 4) * 0.7)).toFixed(1));
-  // score/clock derived from the GAME, not the player, so every player sharing a
-  // game sees the same live state
-  const gh = hashStr(game.id);
-  const quarter = 1 + (gh % 4);
-  const clock = `${(gh >> 5) % 15}:${String((gh >> 2) % 60).padStart(2, "0")}`;
-  const homeScore = 3 * (gh % 8);
-  const awayScore = 3 * ((gh >> 3) % 8);
-  const teamScore = team === game.home ? homeScore : awayScore;
-  const oppScore = team === game.home ? awayScore : homeScore;
-  return { team, opp, seasonAvg, lastWeek, kickoff: game.kickoff, quarter, clock, teamScore, oppScore, game };
+
+  let quarter, clock, teamScore, oppScore;
+  if (game.isReal) {
+    quarter = game.period || 0;
+    clock = game.clock || "";
+    const homeScore = game.homeScore || 0;
+    const awayScore = game.awayScore || 0;
+    teamScore = team === game.home ? homeScore : awayScore;
+    oppScore = team === game.home ? awayScore : homeScore;
+  } else {
+    // score/clock derived from the GAME, not the player, so every player
+    // sharing a game sees the same (fake) live state
+    const gh = hashStr(game.id);
+    quarter = 1 + (gh % 4);
+    clock = `${(gh >> 5) % 15}:${String((gh >> 2) % 60).padStart(2, "0")}`;
+    const homeScore = 3 * (gh % 8);
+    const awayScore = 3 * ((gh >> 3) % 8);
+    teamScore = team === game.home ? homeScore : awayScore;
+    oppScore = team === game.home ? awayScore : homeScore;
+  }
+
+  return { team, opp, kickoff: game.kickoff, quarter, clock, teamScore, oppScore, game };
 }
 
 // One-line matchup summary shown under a player's name on the Scoreboard.
+// Uses the real game's own state (pre/in/post) once real data has loaded,
+// since that's more trustworthy than the player's own placeholder status.
 function gameLine(p) {
   const g = mockGame(p);
-  if (p.status === "pre") {
+  const state = g.game.isReal
+    ? g.game.state
+    : p.status === "pre"
+    ? "pre"
+    : p.status === "live"
+    ? "in"
+    : "post";
+  if (state === "pre") {
     return `${g.team} vs. ${g.opp}  ${g.game.date} ${g.game.timeShort} EDT`;
   }
-  if (p.status === "live") {
+  if (state === "in") {
     return `${g.team} ${g.teamScore} - ${g.opp} ${g.oppScore}  ${g.quarter}Q ${g.clock}`;
   }
   return `${g.team} ${g.teamScore} - ${g.opp} ${g.oppScore}  FINAL`;
@@ -1201,7 +1241,7 @@ function PlayerModal({ player, onClose }) {
         {boxScore.length > 0 && (
           <>
             <div className="fd-modal-section-label fd-body">THIS WEEK</div>
-            <div className="fd-modal-grid" style={{ marginBottom: 14 }}>
+            <div className="fd-modal-grid">
               {boxScore.map((s) => (
                 <div key={s.label}>
                   <span className="fd-modal-label fd-body">{s.label}</span>
@@ -1209,20 +1249,8 @@ function PlayerModal({ player, onClose }) {
                 </div>
               ))}
             </div>
-            <div className="fd-modal-divider" />
           </>
         )}
-
-        <div className="fd-modal-grid">
-          <div>
-            <span className="fd-modal-label fd-body">SEASON AVG</span>
-            <span className="fd-modal-val fd-body">{game.seasonAvg.toFixed(1)}</span>
-          </div>
-          <div>
-            <span className="fd-modal-label fd-body">LAST WEEK</span>
-            <span className="fd-modal-val fd-body">{game.lastWeek.toFixed(1)}</span>
-          </div>
-        </div>
       </div>
     </div>
   );
@@ -1351,7 +1379,9 @@ function HelpMeRootScreen({ leaguesData }) {
   const [selectedSlot, setSelectedSlot] = useState(null);
 
   const scopeGameIds =
-    mode === "slot" ? GAMES.filter((g) => g.slot === selectedSlot).map((g) => g.id) : selectedGames;
+    mode === "slot"
+      ? CURRENT_GAMES.filter((g) => g.slot === selectedSlot).map((g) => g.id)
+      : selectedGames;
 
   const guide = scopeGameIds.length > 0 ? buildRootingGuide(scopeGameIds, leaguesData) : null;
 
@@ -1359,7 +1389,7 @@ function HelpMeRootScreen({ leaguesData }) {
     setSelectedGames((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
   }
 
-  const allSelected = selectedGames.length === GAMES.length;
+  const allSelected = selectedGames.length === CURRENT_GAMES.length;
 
   return (
     <div style={{ maxWidth: 900, margin: "0 auto", padding: "14px 14px 30px" }}>
@@ -1400,12 +1430,12 @@ function HelpMeRootScreen({ leaguesData }) {
         <div className="fd-root-picker fd-root-picker-games">
           <button
             className={`fd-root-pick-btn fd-root-pick-btn-game fd-root-pick-btn-all ${allSelected ? "active" : ""}`}
-            onClick={() => setSelectedGames(allSelected ? [] : GAMES.map((g) => g.id))}
+            onClick={() => setSelectedGames(allSelected ? [] : CURRENT_GAMES.map((g) => g.id))}
           >
             <span className="fd-root-pick-matchup fd-display">ALL</span>
             <span className="fd-root-pick-slot">Every game</span>
           </button>
-          {GAMES.map((g) => (
+          {CURRENT_GAMES.map((g) => (
             <button
               key={g.id}
               className={`fd-root-pick-btn fd-root-pick-btn-game ${selectedGames.includes(g.id) ? "active" : ""}`}
@@ -1751,11 +1781,9 @@ function LiveScreen({ orderedLeagues, selectedWeek, isRealData }) {
         className="fd-board"
         style={{
           gridTemplateColumns: `repeat(${viewLeagues.length}, minmax(0, 1fr))`,
-          // Fewer than 4 leagues: cap the grid's width proportionally and
-          // center it, so 2 leagues don't stretch huge or sit stranded on
-          // the left. 4 or more: let it use the full width as normal.
-          maxWidth: viewLeagues.length < 4 ? `${(viewLeagues.length / 4) * 100}%` : undefined,
-          margin: viewLeagues.length < 4 ? "0 auto" : undefined,
+          // Always stretch to fill the full page width, regardless of how
+          // many leagues there are. Font sizes are driven by viewport
+          // breakpoints, not column width, so they stay the same either way.
         }}
       >
         {viewLeagues.map((l, i) => (
@@ -1927,6 +1955,34 @@ export default function LeaguedUpApp() {
     };
   }, [selectedWeek]);
 
+  // Real NFL schedule/live scores, shared by the Scoreboard's per-player
+  // matchup line, the player modal, and Help Me Root's game/timeslot picker.
+  // CURRENT_GAMES is a module-level variable (not React state), so a dummy
+  // counter is used here just to force everything to re-render once it's
+  // been swapped for real data.
+  const [scheduleVersion, setScheduleVersion] = useState(0);
+  const [scheduleError, setScheduleError] = useState(null);
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/nfl/schedule?week=${selectedWeek}&year=2026`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.error || !data.games?.length) {
+          setScheduleError(data.error || "No games returned");
+          return;
+        }
+        setRealSchedule(data.games);
+        setScheduleVersion((v) => v + 1);
+      })
+      .catch(() => {
+        if (!cancelled) setScheduleError("Could not reach the NFL schedule API route.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWeek]);
+
   const sourceLeagues = realLeagues || leagues; // real once loaded, mock fallback otherwise
   const isRealData = !!realLeagues;
   const activeLeagues = sourceLeagues.filter((l) => !removedIds.includes(l.id));
@@ -1984,6 +2040,11 @@ export default function LeaguedUpApp() {
       {!realLeagues && !loadError && (
         <div className="fd-body" style={{ color: C.grey, fontSize: 12, padding: 10 }}>
           Loading your real Sleeper leagues...
+        </div>
+      )}
+      {scheduleError && (
+        <div className="fd-body" style={{ color: C.red, fontSize: 12, padding: 10 }}>
+          Couldn't load the real NFL schedule ({scheduleError}), matchup info will look fake.
         </div>
       )}
       {page === "root" ? (
