@@ -10,7 +10,7 @@
 export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const username = searchParams.get("username");
-  const season = searchParams.get("season") || "2025";
+  const season = searchParams.get("season") || "2026";
 
   if (!username) {
     return Response.json(
