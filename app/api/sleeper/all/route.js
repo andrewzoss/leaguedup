@@ -57,7 +57,7 @@ async function getWeekStats(season, week) {
   if (cached && Date.now() - cached.fetchedAt < STATS_CACHE_TTL_MS) return cached;
 
   try {
-    const res = await fetch(`https://api.sleeper.app/stats/nfl/regular/${season}/${week}`);
+    const res = await fetch(`https://api.sleeper.app/v1/stats/nfl/regular/${season}/${week}`);
     const rawBody = await res.text();
     if (!res.ok) {
       const result = { data: {}, error: `Sleeper stats request failed (status ${res.status}): ${rawBody.slice(0, 200)}` };
