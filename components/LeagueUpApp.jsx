@@ -1,4 +1,4 @@
-"use client";
+\"use client\";
 
 import React, { useState } from "react";
 import { GripVertical, RefreshCw, X } from "lucide-react";
@@ -1640,6 +1640,38 @@ function PlatformBox({ label, color, children }) {
   );
 }
 
+function CopyCodeButton({ text }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      className="fd-display"
+      onClick={() => {
+        navigator.clipboard
+          .writeText(text)
+          .then(() => {
+            setCopied(true);
+            setTimeout(() => setCopied(false), 2000);
+          })
+          .catch(() => {
+            setCopied(false);
+          });
+      }}
+      style={{
+        width: "100%",
+        padding: "10px 0",
+        fontSize: 12,
+        letterSpacing: 1,
+        color: copied ? C.bg : C.white,
+        backgroundColor: copied ? C.green : C.panelAlt,
+        border: `1px solid ${copied ? C.green : C.line}`,
+        cursor: "pointer",
+      }}
+    >
+      {copied ? "COPIED" : "COPY CODE"}
+    </button>
+  );
+}
+
 function SetupScreen({
   onGoLive,
   leagueOrder,
@@ -1656,6 +1688,7 @@ function SetupScreen({
   const [usernameDraft, setUsernameDraft] = useState(sleeperUsername || "");
   const [espnLeagueIdDraft, setEspnLeagueIdDraft] = useState("");
   const [showBookmarklet, setShowBookmarklet] = useState(false);
+  const [showLeagueIdHelp, setShowLeagueIdHelp] = useState(false);
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 20px 80px" }}>
@@ -1785,13 +1818,7 @@ function SetupScreen({
                       While on an ESPN page, open your bookmarks and tap "Connect ESPN." You'll be sent back here, connected.
                     </li>
                   </ol>
-                  <textarea
-                    readOnly
-                    className="fd-body"
-                    value={ESPN_BOOKMARKLET}
-                    onFocus={(e) => e.target.select()}
-                    style={{ ...inputStyle, height: 90, resize: "none", fontSize: 10 }}
-                  />
+                  <CopyCodeButton text={ESPN_BOOKMARKLET} />
                 </div>
               )}
             </>
@@ -1824,13 +1851,7 @@ function SetupScreen({
                     Login expired? Log into espn.com/fantasy again, then tap
                     your "Connect ESPN" bookmark again.
                   </p>
-                  <textarea
-                    readOnly
-                    className="fd-body"
-                    value={ESPN_BOOKMARKLET}
-                    onFocus={(e) => e.target.select()}
-                    style={{ ...inputStyle, height: 90, resize: "none", fontSize: 10 }}
-                  />
+                  <CopyCodeButton text={ESPN_BOOKMARKLET} />
                 </div>
               )}
               {espnLeagueIds.length > 0 && (
@@ -1859,6 +1880,45 @@ function SetupScreen({
                       </button>
                     </div>
                   ))}
+                </div>
+              )}
+              <button
+                className="fd-body"
+                onClick={() => setShowLeagueIdHelp((v) => !v)}
+                style={{
+                  background: "none",
+                  border: "none",
+                  color: C.grey,
+                  fontSize: 11,
+                  textDecoration: "underline",
+                  padding: 0,
+                  marginBottom: 8,
+                  cursor: "pointer",
+                }}
+              >
+                {showLeagueIdHelp ? "Hide" : "Where do I find my League ID?"}
+              </button>
+              {showLeagueIdHelp && (
+                <div
+                  className="fd-body"
+                  style={{ fontSize: 11, color: C.grey, marginBottom: 10, lineHeight: 1.5 }}
+                >
+                  <strong style={{ color: C.white }}>In the ESPN Fantasy app:</strong> open your
+                  league, tap "More" in the bottom nav, then "League," then
+                  "Settings." The League ID is shown near the top, under
+                  General settings.
+                  <br />
+                  <br />
+                  Can't find it there? Tap the share/invite option instead
+                  (often under "Members" or a person-plus icon) and generate
+                  an invite link, the League ID is the number after
+                  "leagueId=" in that link, even if you don't send it to
+                  anyone.
+                  <br />
+                  <br />
+                  <strong style={{ color: C.white }}>On the website:</strong> open your league at
+                  fantasy.espn.com, the League ID is the number after
+                  "leagueId=" in your browser's address bar.
                 </div>
               )}
               <div style={{ display: "flex", gap: 8 }}>
