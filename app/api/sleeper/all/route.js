@@ -54,15 +54,30 @@ const STATS_CACHE_TTL_MS = 1000 * 60 * 2; // 2 minutes, short since it's live du
 async function getWeekStats(season, week) {
   const key = `${season}-${week}`;
   const cached = STATS_CACHE.get(key);
-  if (cached && Date.now() - cached.fetchedAt < STATS_CACHE_TTL_MS) return cached.data;
+  if (cached && Date.now() - cached.fetchedAt < STATS_CACHE_TTL_MS) return cached;
 
-  const res = await fetch(
-    `https://api.sleeper.app/stats/nfl/regular/${season}/${week}`
-  );
-  if (!res.ok) return {}; // fail soft - box score just won't show real stats this time
-  const data = await res.json();
-  STATS_CACHE.set(key, { data, fetchedAt: Date.now() });
-  return data;
+  try {
+    const res = await fetch(`https://api.sleeper.app/stats/nfl/regular/${season}/${week}`);
+    const rawBody = await res.text();
+    if (!res.ok) {
+      const result = { data: {}, error: `Sleeper stats request failed (status ${res.status}): ${rawBody.slice(0, 200)}` };
+      STATS_CACHE.set(key, { ...result, fetchedAt: Date.now() });
+      return result;
+    }
+    let data;
+    try {
+      data = JSON.parse(rawBody);
+    } catch {
+      const result = { data: {}, error: `Sleeper stats returned non-JSON: ${rawBody.slice(0, 200)}` };
+      STATS_CACHE.set(key, { ...result, fetchedAt: Date.now() });
+      return result;
+    }
+    const result = { data, error: null };
+    STATS_CACHE.set(key, { ...result, fetchedAt: Date.now() });
+    return result;
+  } catch (err) {
+    return { data: {}, error: `Sleeper stats fetch threw: ${err.message}` };
+  }
 }
 
 function slotLabel(sleeperSlot) {
@@ -255,16 +270,23 @@ export async function GET(request) {
       return Response.json({ error: "Could not fetch leagues from Sleeper" }, { status: 502 });
     }
     const leagueMetas = await leaguesRes.json();
-    const [playersMap, weekStats] = await Promise.all([
+    const [playersMap, weekStatsResult] = await Promise.all([
       getPlayersMap(),
       getWeekStats(SEASON, week),
     ]);
+    const weekStats = weekStatsResult.data;
 
     const results = await Promise.all(
       leagueMetas.map((lm) => buildOneLeague(lm, user.user_id, week, playersMap, weekStats))
     );
 
-    return Response.json({ leagues: results.filter(Boolean) });
+    return Response.json({
+      leagues: results.filter(Boolean),
+      // TEMPORARY diagnostic: shows up only if the Sleeper stats fetch
+      // itself failed, so real box scores not showing can be told apart
+      // from "nobody's played yet". Safe to remove once stats are working.
+      statsError: weekStatsResult.error,
+    });
   } catch (err) {
     return Response.json({ error: "Something went wrong fetching your leagues" }, { status: 500 });
   }
