@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { GripVertical, RefreshCw } from "lucide-react";
+import { GripVertical, RefreshCw, X } from "lucide-react";
 
 // ---------- Design tokens (colors only - sizing lives in CSS classes below) ----------
 const C = {
@@ -468,12 +468,26 @@ const styles = `
   cursor: grabbing;
 }
 .fd-reorder-name {
+  flex: 1;
+  min-width: 0;
   font-size: 13px;
   color: #F5F3EC;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.fd-reorder-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  background: none;
+  border: none;
+  color: #8D8D91;
+  padding: 4px;
+  cursor: pointer;
+}
+.fd-reorder-remove:active { color: #D2232C; }
 
 /* ---- help me root ---- */
 .fd-root-mode-row { display: flex; gap: 5px; margin-bottom: 10px; flex-wrap: wrap; }
@@ -852,7 +866,29 @@ GAMES.forEach((g) => {
 });
 const NFL_TEAMS = Object.keys(TEAM_INFO);
 
+// Fallback for any real NFL team not in our small mock schedule above (real
+// rosters cover all 32 teams, our mock schedule only covers 20 fake-mapped
+// ones). Keeps the app from crashing on real data; the schedule/opponent
+// info here is still a placeholder until real NFL schedule data is wired in.
+const UNKNOWN_GAME = {
+  id: "unknown",
+  home: "?",
+  away: "?",
+  slot: "unknown",
+  slotLabel: "Schedule TBD",
+  kickoff: "TBD",
+  date: "-",
+  timeShort: "-",
+};
+function getTeamInfo(team) {
+  return TEAM_INFO[team] || { opp: "?", game: UNKNOWN_GAME };
+}
+
+// Real data (from Sleeper etc.) carries the player's actual NFL team on
+// p.team - use that when present. Mock data has no such field, so it falls
+// back to a deterministic fake assignment for demo purposes only.
 function getPlayerTeam(p) {
+  if (p.team) return p.team;
   return NFL_TEAMS[hashStr(p.name) % NFL_TEAMS.length];
 }
 
@@ -869,15 +905,15 @@ function getPtsClass(p) {
 // ones. Real data would swap in that week's actual box score / schedule / matchup
 // projection instead of reusing week 2's numbers.
 function transformPlayerForWeek(p, week) {
-  if (week === 2) return p;
-  if (week < 2) return { ...p, status: "final" };
+  if (week === CURRENT_WEEK) return p;
+  if (week < CURRENT_WEEK) return { ...p, status: "final" };
   return { ...p, status: "pre", pts: p.proj };
 }
 
 function applyWeekView(team, week) {
   const starters = team.starters.map((p) => transformPlayerForWeek(p, week));
   const bench = team.bench.map((p) => transformPlayerForWeek(p, week));
-  const total = week === 2 ? team.total : +starters.reduce((s, p) => s + p.pts, 0).toFixed(1);
+  const total = week === CURRENT_WEEK ? team.total : +starters.reduce((s, p) => s + p.pts, 0).toFixed(1);
   return { ...team, starters, bench, total };
 }
 
@@ -885,7 +921,7 @@ function applyWeekView(team, week) {
 // from each platform's live scoring feed instead of being derived like this.
 function mockGame(p) {
   const team = getPlayerTeam(p);
-  const { opp, game } = TEAM_INFO[team];
+  const { opp, game } = getTeamInfo(team);
   const seasonAvg = Math.max(0, +(p.proj + (((hashStr(p.name) % 7) - 3) * 0.5)).toFixed(1));
   const lastWeek = Math.max(0, +(p.proj + ((((hashStr(p.name) >> 2) % 9) - 4) * 0.7)).toFixed(1));
   // score/clock derived from the GAME, not the player, so every player sharing a
@@ -1203,17 +1239,17 @@ function PlayerModal({ player, onClose }) {
 //   AGAINST   = a player who isn't a starter on any of your rosters, but is a
 //               starter on at least one opponent's roster.
 // Only starters count on both sides.
-function buildRootingGuide(scopeGameIds) {
+function buildRootingGuide(scopeGameIds, leaguesData) {
   const scope = new Set(scopeGameIds);
   const yourMap = {};
   const oppMap = {};
 
   function inScope(p) {
     const team = getPlayerTeam(p);
-    return scope.has(TEAM_INFO[team].game.id) ? team : null;
+    return scope.has(getTeamInfo(team).game.id) ? team : null;
   }
 
-  leagues.forEach((l) => {
+  leaguesData.forEach((l) => {
     l.you.starters.forEach((p) => {
       const team = inScope(p);
       if (!team) return;
@@ -1308,7 +1344,7 @@ function ConflictEntry({ c }) {
   );
 }
 
-function HelpMeRootScreen() {
+function HelpMeRootScreen({ leaguesData }) {
   const [mode, setMode] = useState("games"); // 'games' | 'slot'
   const [selectedGames, setSelectedGames] = useState([]);
   const [selectedSlot, setSelectedSlot] = useState(null);
@@ -1316,7 +1352,7 @@ function HelpMeRootScreen() {
   const scopeGameIds =
     mode === "slot" ? GAMES.filter((g) => g.slot === selectedSlot).map((g) => g.id) : selectedGames;
 
-  const guide = scopeGameIds.length > 0 ? buildRootingGuide(scopeGameIds) : null;
+  const guide = scopeGameIds.length > 0 ? buildRootingGuide(scopeGameIds, leaguesData) : null;
 
   function toggleGame(id) {
     setSelectedGames((cur) => (cur.includes(id) ? cur.filter((x) => x !== id) : [...cur, id]));
@@ -1434,7 +1470,7 @@ function HelpMeRootScreen() {
 
 const REORDER_ROW_H = 40;
 
-function ReorderRow({ league, index, dragState, onPointerDown }) {
+function ReorderRow({ league, index, dragState, onPointerDown, onRemove }) {
   const isDragging = dragState.id === league.id;
   return (
     <div
@@ -1447,13 +1483,24 @@ function ReorderRow({ league, index, dragState, onPointerDown }) {
         {PLATFORM_LABEL[league.platform]}
       </span>
       <span className="fd-reorder-name fd-body">{league.name}</span>
+      <button
+        className="fd-reorder-remove"
+        onClick={(e) => {
+          e.stopPropagation();
+          onRemove(league.id);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label={`Remove ${league.name}`}
+      >
+        <X size={14} />
+      </button>
     </div>
   );
 }
 
-function ReorderList({ order, onReorder }) {
+function ReorderList({ order, leaguesData, onReorder, onRemove }) {
   const [dragState, setDragState] = useState({ id: null, startIndex: 0, dy: 0, startY: 0 });
-  const items = order.map((id) => leagues.find((l) => l.id === id));
+  const items = order.map((id) => leaguesData.find((l) => l.id === id)).filter(Boolean);
 
   function handlePointerDown(e, id, index) {
     e.preventDefault();
@@ -1485,6 +1532,11 @@ function ReorderList({ order, onReorder }) {
       onPointerUp={handlePointerUp}
       onPointerCancel={handlePointerUp}
     >
+      {items.length === 0 && (
+        <div className="fd-body" style={{ padding: 12, fontSize: 12, color: C.grey }}>
+          No leagues left. Add one below.
+        </div>
+      )}
       {items.map((league, i) => (
         <ReorderRow
           key={league.id}
@@ -1492,6 +1544,7 @@ function ReorderList({ order, onReorder }) {
           index={i}
           dragState={dragState}
           onPointerDown={handlePointerDown}
+          onRemove={onRemove}
         />
       ))}
     </div>
@@ -1577,7 +1630,7 @@ function LeagueSlot({ index, slot, onChange }) {
   );
 }
 
-function SetupScreen({ onGoLive, leagueOrder, onReorderLeagues }) {
+function SetupScreen({ onGoLive, leagueOrder, onReorderLeagues, leaguesData, onRemoveLeague }) {
   const [slots, setSlots] = useState([
     { platform: "sleeper" },
     { platform: "espn" },
@@ -1631,7 +1684,12 @@ function SetupScreen({ onGoLive, leagueOrder, onReorderLeagues }) {
         <p className="fd-body" style={{ fontSize: 12, color: C.grey, margin: "0 0 10px" }}>
           Drag to set the order your leagues appear on the Scoreboard.
         </p>
-        <ReorderList order={leagueOrder} onReorder={onReorderLeagues} />
+        <ReorderList
+          order={leagueOrder}
+          leaguesData={leaguesData}
+          onReorder={onReorderLeagues}
+          onRemove={onRemoveLeague}
+        />
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -1671,61 +1729,34 @@ function SetupScreen({ onGoLive, leagueOrder, onReorderLeagues }) {
 
 // ---------- Live dashboard screen ----------
 
-// TEMPORARY: hardcoded until the Add Leagues screen actually saves your
-// Sleeper username. Swap this for real user-entered values once that's built.
-const SLEEPER_USERNAME = "andrewzoss";
-const SLEEPER_WEEK = 1;
-
-function LiveScreen({ orderedLeagues, selectedWeek }) {
+function LiveScreen({ orderedLeagues, selectedWeek, isRealData }) {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
-  const [realLeagues, setRealLeagues] = useState(null);
-  const [loadError, setLoadError] = useState(null);
   const isCurrentWeek = selectedWeek === CURRENT_WEEK;
 
-  React.useEffect(() => {
-    let cancelled = false;
-    fetch(`/api/sleeper/all?username=${SLEEPER_USERNAME}&week=${SLEEPER_WEEK}`)
-      .then((res) => res.json())
-      .then((data) => {
-        if (cancelled) return;
-        if (data.error) setLoadError(data.error);
-        else setRealLeagues(data.leagues);
-      })
-      .catch(() => {
-        if (!cancelled) setLoadError("Could not reach the Sleeper API route.");
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // Real Sleeper leagues once they've loaded, otherwise fall back to mock
-  // data so the page isn't blank while the fetch is in flight.
-  const sourceLeagues = realLeagues || orderedLeagues;
-
-  const viewLeagues = React.useMemo(
-    () =>
-      sourceLeagues.map((l) => ({
-        ...l,
-        you: applyWeekView(l.you, selectedWeek),
-        opp: applyWeekView(l.opp, selectedWeek),
-      })),
-    [sourceLeagues, selectedWeek]
-  );
+  // Real data for the selected week is already correct as-is, no need to run
+  // it through the mock past/future simulation. Only mock data gets that.
+  const viewLeagues = React.useMemo(() => {
+    if (isRealData) return orderedLeagues;
+    return orderedLeagues.map((l) => ({
+      ...l,
+      you: applyWeekView(l.you, selectedWeek),
+      opp: applyWeekView(l.opp, selectedWeek),
+    }));
+  }, [orderedLeagues, selectedWeek, isRealData]);
 
   return (
     <div>
-      {loadError && (
-        <div className="fd-body" style={{ color: C.red, fontSize: 12, padding: 10 }}>
-          Couldn't load real Sleeper data ({loadError}), showing mock leagues instead.
-        </div>
-      )}
-      {!realLeagues && !loadError && (
-        <div className="fd-body" style={{ color: C.grey, fontSize: 12, padding: 10 }}>
-          Loading your real Sleeper leagues...
-        </div>
-      )}
-      <div className="fd-board">
+      <div
+        className="fd-board"
+        style={{
+          gridTemplateColumns: `repeat(${viewLeagues.length}, minmax(0, 1fr))`,
+          // Fewer than 4 leagues: cap the grid's width proportionally and
+          // center it, so 2 leagues don't stretch huge or sit stranded on
+          // the left. 4 or more: let it use the full width as normal.
+          maxWidth: viewLeagues.length < 4 ? `${(viewLeagues.length / 4) * 100}%` : undefined,
+          margin: viewLeagues.length < 4 ? "0 auto" : undefined,
+        }}
+      >
         {viewLeagues.map((l, i) => (
           <LeagueColumn
             key={l.id}
@@ -1744,7 +1775,7 @@ function LiveScreen({ orderedLeagues, selectedWeek }) {
 
 // ---------- Persistent app header + top-level nav ----------
 
-const CURRENT_WEEK = 2;
+const CURRENT_WEEK = 1;
 const ALL_WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
 
 function weekBadgeInfo(week) {
@@ -1857,13 +1888,65 @@ function AppHeader({ page, screen, setPage, onGoToScoreboard, onAddLeagues, seco
 
 // ---------- Root ----------
 
+// TEMPORARY: hardcoded username until the Add Leagues screen actually saves
+// your Sleeper username. Swap this for a real user-entered value once
+// that's built.
+const SLEEPER_USERNAME = "andrewzoss";
+
 export default function LeaguedUpApp() {
   const [page, setPage] = useState("scoreboard");
   const [screen, setScreen] = useState("live");
-  const [leagueOrder, setLeagueOrder] = useState(leagues.map((l) => l.id));
   const [selectedWeek, setSelectedWeek] = useState(CURRENT_WEEK);
   const [secondsAgo, setSecondsAgo] = useState(0);
-  const orderedLeagues = leagueOrder.map((id) => leagues.find((l) => l.id === id));
+
+  // Real Sleeper data, fetched once here and shared by the Scoreboard, Help
+  // Me Root, and the Add Leagues reorder list, so all three are always
+  // looking at the same actual leagues instead of Scoreboard alone.
+  const [realLeagues, setRealLeagues] = useState(null);
+  const [loadError, setLoadError] = useState(null);
+  const [removedIds, setRemovedIds] = useState([]);
+  const [leagueOrder, setLeagueOrder] = useState(leagues.map((l) => l.id));
+
+  React.useEffect(() => {
+    let cancelled = false;
+    setRealLeagues(null);
+    setLoadError(null);
+    fetch(`/api/sleeper/all?username=${SLEEPER_USERNAME}&week=${selectedWeek}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.error) setLoadError(data.error);
+        else setRealLeagues(data.leagues);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Could not reach the Sleeper API route.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedWeek]);
+
+  const sourceLeagues = realLeagues || leagues; // real once loaded, mock fallback otherwise
+  const isRealData = !!realLeagues;
+  const activeLeagues = sourceLeagues.filter((l) => !removedIds.includes(l.id));
+  const activeIdsKey = activeLeagues.map((l) => l.id).join(",");
+
+  // Keeps leagueOrder in sync whenever the active league set changes (real
+  // data arriving, or a league being removed): keeps existing order for ids
+  // still present, appends any new ones, drops any that disappeared.
+  React.useEffect(() => {
+    setLeagueOrder((prevOrder) => {
+      const activeIds = activeLeagues.map((l) => l.id);
+      const kept = prevOrder.filter((id) => activeIds.includes(id));
+      const added = activeIds.filter((id) => !kept.includes(id));
+      return [...kept, ...added];
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeIdsKey]);
+
+  const orderedLeagues = leagueOrder
+    .map((id) => activeLeagues.find((l) => l.id === id))
+    .filter(Boolean);
 
   React.useEffect(() => {
     const tick = setInterval(() => {
@@ -1892,16 +1975,28 @@ export default function LeaguedUpApp() {
         selectedWeek={selectedWeek}
         setSelectedWeek={setSelectedWeek}
       />
+      {loadError && (
+        <div className="fd-body" style={{ color: C.red, fontSize: 12, padding: 10 }}>
+          Couldn't load real Sleeper data ({loadError}), showing mock leagues instead.
+        </div>
+      )}
+      {!realLeagues && !loadError && (
+        <div className="fd-body" style={{ color: C.grey, fontSize: 12, padding: 10 }}>
+          Loading your real Sleeper leagues...
+        </div>
+      )}
       {page === "root" ? (
-        <HelpMeRootScreen />
+        <HelpMeRootScreen leaguesData={orderedLeagues} />
       ) : screen === "setup" ? (
         <SetupScreen
           onGoLive={() => setScreen("live")}
           leagueOrder={leagueOrder}
           onReorderLeagues={setLeagueOrder}
+          leaguesData={activeLeagues}
+          onRemoveLeague={(id) => setRemovedIds((prev) => [...prev, id])}
         />
       ) : (
-        <LiveScreen orderedLeagues={orderedLeagues} selectedWeek={selectedWeek} />
+        <LiveScreen orderedLeagues={orderedLeagues} selectedWeek={selectedWeek} isRealData={isRealData} />
       )}
     </div>
   );
