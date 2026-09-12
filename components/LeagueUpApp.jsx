@@ -2435,7 +2435,7 @@ export default function LeaguedUpApp() {
         selectedWeek={selectedWeek}
         setSelectedWeek={setSelectedWeek}
       />
-      {!sleeperUsername && !espnCookies && (
+      {!sleeperUsername && !espnCookies && screen !== "setup" && (
         <div style={{ padding: "30px 20px", textAlign: "center" }}>
           <div className="fd-body" style={{ color: C.grey, fontSize: 13, marginBottom: 12 }}>
             No leagues connected yet.
