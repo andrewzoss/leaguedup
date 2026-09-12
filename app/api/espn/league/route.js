@@ -91,7 +91,11 @@ export async function GET(request) {
   }
 
   try {
-    const url = `https://fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${leagueId}?view=mRoster&view=mTeam&view=mMatchupScore&scoringPeriodId=${week}`;
+    // ESPN moved their read-only fantasy API to this subdomain a while back -
+    // the plain fantasy.espn.com host now just serves the regular website
+    // (which is exactly the HTML-instead-of-JSON failure this route used to
+    // hit).
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${leagueId}?view=mRoster&view=mTeam&view=mMatchupScore&scoringPeriodId=${week}`;
     const res = await fetch(url, {
       headers: {
         Cookie: `SWID=${swid}; espn_s2=${espnS2}`,
