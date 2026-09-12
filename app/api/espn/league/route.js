@@ -22,6 +22,9 @@ const POSITION_MAP = { 1: "QB", 2: "RB", 3: "WR", 4: "TE", 5: "K", 16: "DST" };
 // Starting lineup slot IDs only - anything else (bench, IR, etc) falls
 // through to bench.
 const LINEUP_SLOT_MAP = { 0: "QB", 2: "RB", 4: "WR", 6: "TE", 16: "DST", 17: "K", 23: "FLX" };
+// Reading order for starters - matches how every other league in the app
+// already displays (QB, RBs, WRs, TE, FLEX, DST, K).
+const POS_ORDER = { QB: 0, RB: 1, WR: 2, TE: 3, FLX: 4, DST: 5, K: 6 };
 
 function normalizeSwid(v) {
   return decodeURIComponent(v || "")
@@ -71,8 +74,16 @@ function buildTeam(team, week) {
     else bench.push(row);
   });
 
-  const total = +starters.reduce((s, p) => s + p.pts, 0).toFixed(1);
-  return { team: teamName, record, total, starters, bench };
+  // ESPN's roster entries come back in whatever order they happen to be
+  // stored in, not lineup order, so sort them into the usual QB/RB/WR/TE/
+  // FLEX/DST/K reading order ourselves. Sort is stable, so multiple RBs or
+  // WRs keep their original relative order.
+  const starters2 = [...starters].sort(
+    (a, b) => (POS_ORDER[a.pos] ?? 99) - (POS_ORDER[b.pos] ?? 99)
+  );
+
+  const total = +starters2.reduce((s, p) => s + p.pts, 0).toFixed(1);
+  return { team: teamName, record, total, starters: starters2, bench };
 }
 
 export async function GET(request) {
@@ -95,7 +106,7 @@ export async function GET(request) {
     // the plain fantasy.espn.com host now just serves the regular website
     // (which is exactly the HTML-instead-of-JSON failure this route used to
     // hit).
-    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${leagueId}?view=mRoster&view=mTeam&view=mMatchupScore&scoringPeriodId=${week}`;
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${leagueId}?view=mRoster&view=mTeam&view=mMatchupScore&view=mSettings&scoringPeriodId=${week}`;
     const res = await fetch(url, {
       headers: {
         Cookie: `SWID=${swid}; espn_s2=${espnS2}`,
