@@ -66,7 +66,7 @@ async function getWeekStats(season, week) {
 }
 
 function slotLabel(sleeperSlot) {
-  const map = { DEF: "DST", FLEX: "FLX", SUPER_FLEX: "FLX", BN: "BN" };
+  const map = { DEF: "DST", FLEX: "FLX", SUPER_FLEX: "SUP", BN: "BN" };
   return map[sleeperSlot] || sleeperSlot;
 }
 
@@ -180,7 +180,7 @@ function buildTeam({ roster, matchup, users, playersMap, rosterPositions, weekSt
       status: pts > 0 ? "live" : "pre", // placeholder, corrected client-side - see note at top
       boxScore: realBoxScore(realPos, weekStats[playerId]),
     };
-    if (label === "FLX" && realPos) row.realPos = realPos;
+    if ((label === "FLX" || label === "SUP") && realPos) row.realPos = realPos;
     return row;
   }
 
