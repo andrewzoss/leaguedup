@@ -1,4 +1,4 @@
-\"use client\";
+"use client";
 
 import React, { useState } from "react";
 import { GripVertical, RefreshCw, X } from "lucide-react";
