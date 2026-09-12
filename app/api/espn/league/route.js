@@ -41,7 +41,61 @@ function getPlayerStatsForWeek(player, week) {
     // ESPN actually has real weekly projections (statSourceId 1) - unlike
     // Sleeper, this is a genuine projection, not a derived average.
     proj: +(projected?.appliedTotal ?? actual?.appliedTotal ?? 0).toFixed(1),
+    rawStats: actual?.stats || null, // numeric-stat-id -> value, e.g. {"3": 250, "4": 2}
   };
+}
+
+// ESPN's raw stat breakdown is keyed by numeric stat IDs rather than names.
+// These specific numbers are well-established in the open-source ESPN
+// fantasy community (same ones espn-api and similar projects use), but like
+// everything else in this file, ESPN has never officially published them -
+// worth checking against a real box score once this is live. Kickers and
+// D/ST use a much less standardized bucket of stat IDs (field goals by
+// distance range, points-allowed tiers, etc), so those two positions are
+// left on the client's fake fallback rather than risk showing confidently
+// wrong real-looking numbers.
+const STAT_IDS = { passYds: 3, passTD: 4, passInt: 20, rushYds: 25, rushTD: 26, recYds: 42, recTD: 43, rec: 53, targets: 58 };
+
+function realBoxScore(pos, rawStats) {
+  if (!rawStats) return null;
+  const num = (id) => Math.round(rawStats[id] || 0);
+  if (pos === "QB") {
+    return [
+      { label: "PASS YDS", value: num(STAT_IDS.passYds) },
+      { label: "PASS TD", value: num(STAT_IDS.passTD) },
+      { label: "INT", value: num(STAT_IDS.passInt) },
+      { label: "RUSH YDS", value: num(STAT_IDS.rushYds) },
+    ];
+  }
+  if (pos === "RB") {
+    return [
+      { label: "RUSH YDS", value: num(STAT_IDS.rushYds) },
+      { label: "RUSH TD", value: num(STAT_IDS.rushTD) },
+      { label: "REC", value: num(STAT_IDS.rec) },
+      { label: "REC YDS", value: num(STAT_IDS.recYds) },
+    ];
+  }
+  if (pos === "WR" || pos === "TE") {
+    return [
+      { label: "REC", value: num(STAT_IDS.rec) },
+      { label: "REC YDS", value: num(STAT_IDS.recYds) },
+      { label: "REC TD", value: num(STAT_IDS.recTD) },
+      { label: "TARGETS", value: num(STAT_IDS.targets) },
+    ];
+  }
+  return null; // K/DST - see note above
+}
+
+// Sleeper's names come through as "F. Last" (first initial + last name).
+// ESPN gives full names by default, which breaks Help Me Root's cross-
+// platform matching (it compares names as strings to catch the same real
+// player rostered on two platforms). This matches ESPN's format to
+// Sleeper's so that matching works. Defenses stay as their full team name
+// on both platforms, matching what Sleeper already does.
+function formatPlayerName(player) {
+  if (player.defaultPositionId === 16) return player.fullName; // D/ST - keep full team name
+  const last = player.lastName || player.fullName;
+  return player.firstName ? `${player.firstName[0]}. ${last}` : last;
 }
 
 function buildTeam(team, week) {
@@ -57,19 +111,27 @@ function buildTeam(team, week) {
   entries.forEach((entry) => {
     const player = entry.playerPoolEntry?.player;
     if (!player) return;
-    const { pts, proj } = getPlayerStatsForWeek(player, week);
+    const { pts, proj, rawStats } = getPlayerStatsForWeek(player, week);
     const realPos = POSITION_MAP[player.defaultPositionId] || "FLX";
     const proTeam = PRO_TEAM_MAP[player.proTeamId] || null;
     const slotLabel = LINEUP_SLOT_MAP[entry.lineupSlotId];
     const row = {
       pos: slotLabel || realPos,
-      name: player.fullName,
+      name: formatPlayerName(player),
       pts,
       proj,
       team: proTeam,
       status: pts > 0 ? "live" : "pre", // placeholder, corrected client-side against the real NFL schedule
+      boxScore: realBoxScore(realPos, rawStats),
     };
     if (row.pos === "FLX") row.realPos = realPos;
+    // TEMPORARY diagnostic: K/DST stat IDs aren't mapped yet (see the note
+    // above STAT_IDS) - this surfaces ESPN's raw numeric stat object so we
+    // can read the real IDs off an actual kicker/defense and map them
+    // precisely instead of guessing. Remove once K/DST are mapped for real.
+    if ((realPos === "K" || realPos === "DST") && rawStats) {
+      row.debugRawStats = rawStats;
+    }
     if (slotLabel) starters.push(row);
     else bench.push(row);
   });
