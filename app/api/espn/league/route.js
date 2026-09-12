@@ -93,20 +93,48 @@ export async function GET(request) {
   try {
     const url = `https://fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${leagueId}?view=mRoster&view=mTeam&view=mMatchupScore&scoringPeriodId=${week}`;
     const res = await fetch(url, {
-      headers: { Cookie: `SWID=${swid}; espn_s2=${espnS2}` },
+      headers: {
+        Cookie: `SWID=${swid}; espn_s2=${espnS2}`,
+        // ESPN's edge/bot-detection can reject requests that don't look like
+        // a real browser. A bare server-side fetch with no User-Agent/Accept
+        // is a common trigger for that, so these are set explicitly.
+        "User-Agent":
+          "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1",
+        Accept: "application/json",
+      },
     });
+
+    // Read the body as text first, so a non-JSON response (an HTML block
+    // page, a login redirect, etc) produces a clear, specific error instead
+    // of an opaque "something went wrong".
+    const rawBody = await res.text();
+    let data;
+    try {
+      data = JSON.parse(rawBody);
+    } catch {
+      return Response.json(
+        {
+          error: `ESPN returned something that wasn't JSON (status ${res.status}). First 200 chars: ${rawBody.slice(
+            0,
+            200
+          )}`,
+        },
+        { status: 502 }
+      );
+    }
+
     if (!res.ok) {
       const authFailed = res.status === 401 || res.status === 403;
       return Response.json(
         {
           error: authFailed
             ? "ESPN login expired - reconnect with the bookmarklet and try again"
-            : "ESPN request failed",
+            : `ESPN request failed (status ${res.status}): ${data?.messages?.[0] || JSON.stringify(data).slice(0, 200)}`,
         },
         { status: authFailed ? 401 : 502 }
       );
     }
-    const data = await res.json();
+
     const teams = data.teams || [];
 
     const myTeam = teams.find((t) =>
@@ -143,6 +171,9 @@ export async function GET(request) {
       opp: buildTeam(oppTeam, week),
     });
   } catch (err) {
-    return Response.json({ error: "Something went wrong fetching this ESPN league" }, { status: 500 });
+    return Response.json(
+      { error: `Something went wrong fetching this ESPN league: ${err.message}` },
+      { status: 500 }
+    );
   }
 }
