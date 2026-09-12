@@ -1671,22 +1671,60 @@ function SetupScreen({ onGoLive, leagueOrder, onReorderLeagues }) {
 
 // ---------- Live dashboard screen ----------
 
+// TEMPORARY: hardcoded until the Add Leagues screen actually saves your
+// Sleeper username. Swap this for real user-entered values once that's built.
+const SLEEPER_USERNAME = "andrewzoss";
+const SLEEPER_WEEK = 1;
+
 function LiveScreen({ orderedLeagues, selectedWeek }) {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
+  const [realLeagues, setRealLeagues] = useState(null);
+  const [loadError, setLoadError] = useState(null);
   const isCurrentWeek = selectedWeek === CURRENT_WEEK;
+
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch(`/api/sleeper/all?username=${SLEEPER_USERNAME}&week=${SLEEPER_WEEK}`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled) return;
+        if (data.error) setLoadError(data.error);
+        else setRealLeagues(data.leagues);
+      })
+      .catch(() => {
+        if (!cancelled) setLoadError("Could not reach the Sleeper API route.");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Real Sleeper leagues once they've loaded, otherwise fall back to mock
+  // data so the page isn't blank while the fetch is in flight.
+  const sourceLeagues = realLeagues || orderedLeagues;
 
   const viewLeagues = React.useMemo(
     () =>
-      orderedLeagues.map((l) => ({
+      sourceLeagues.map((l) => ({
         ...l,
         you: applyWeekView(l.you, selectedWeek),
         opp: applyWeekView(l.opp, selectedWeek),
       })),
-    [orderedLeagues, selectedWeek]
+    [sourceLeagues, selectedWeek]
   );
 
   return (
     <div>
+      {loadError && (
+        <div className="fd-body" style={{ color: C.red, fontSize: 12, padding: 10 }}>
+          Couldn't load real Sleeper data ({loadError}), showing mock leagues instead.
+        </div>
+      )}
+      {!realLeagues && !loadError && (
+        <div className="fd-body" style={{ color: C.grey, fontSize: 12, padding: 10 }}>
+          Loading your real Sleeper leagues...
+        </div>
+      )}
       <div className="fd-board">
         {viewLeagues.map((l, i) => (
           <LeagueColumn
