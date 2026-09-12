@@ -1,4 +1,4 @@
-"use client";
+\"use client\";
 
 import React, { useState } from "react";
 import { GripVertical, RefreshCw, X } from "lucide-react";
@@ -583,6 +583,7 @@ const styles = `
 .fd-root-tags { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
 .fd-root-tag-pts { font-size: 10.5px; font-weight: 700; }
 .fd-root-league {
+  font-family: 'Inter', sans-serif;
   font-size: 7.5px;
   font-weight: 700;
   letter-spacing: 0.3px;
