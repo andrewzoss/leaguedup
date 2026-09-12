@@ -603,263 +603,19 @@ const styles = `
 .fd-root-conflict-entry .fd-root-name { margin-bottom: 4px; display: block; }
 `;
 
-// ---------- Mock unified data ----------
+// ---------- Real data helpers ----------
 const PLATFORM_LABEL = { sleeper: "SLEEPER", espn: "ESPN", yahoo: "YAHOO" };
 
-const rawLeagues = [
-  {
-    id: "l1",
-    platform: "sleeper",
-    name: "Gridiron Gurus",
-    week: 2,
-    you: {
-      team: "Marsh Motors",
-      record: "1-0",
-      total: 84.2,
-      starters: [
-        { pos: "QB", name: "J. Allen", pts: 24.6, status: "live" },
-        { pos: "RB", name: "B. Robinson", pts: 11.2, status: "live" },
-        { pos: "RB", name: "D. Henry", pts: 18.4, status: "final" },
-        { pos: "WR", name: "A. St. Brown", pts: 9.8, status: "live" },
-        { pos: "WR", name: "D. London", pts: 6.1, status: "live" },
-        { pos: "TE", name: "T. Kelce", pts: 7.4, status: "final" },
-        { pos: "FLX", realPos: "WR", name: "R. Odunze", pts: 4.9, status: "live" },
-      ],
-      bench: [
-        { pos: "RB", name: "A. Jones", pts: 6.2, status: "live" },
-        { pos: "WR", name: "K. Coleman", pts: 0.0, status: "pre" },
-        { pos: "QB", name: "W. Levis", pts: 0.0, status: "pre" },
-        { pos: "RB", name: "D. Achane", pts: 3.5, status: "live" },
-        { pos: "TE", name: "T. McBride", pts: 2.0, status: "pre" },
-      ],
-    },
-    opp: {
-      team: "The Blitzkriegs",
-      record: "0-1",
-      total: 79.8,
-      starters: [
-        { pos: "QB", name: "L. Jackson", pts: 19.3, status: "final" },
-        { pos: "RB", name: "S. Barkley", pts: 22.0, status: "final" },
-        { pos: "RB", name: "J. Cook", pts: 8.7, status: "live" },
-        { pos: "WR", name: "G. Wilson", pts: 12.1, status: "live" },
-        { pos: "WR", name: "C. Lamb", pts: 5.5, status: "live" },
-        { pos: "TE", name: "S. LaPorta", pts: 6.0, status: "live" },
-        { pos: "FLX", realPos: "RB", name: "J. Jacobs", pts: 0.0, status: "pre" },
-      ],
-      bench: [
-        { pos: "RB", name: "Z. Charbonnet", pts: 3.4, status: "live" },
-        { pos: "WR", name: "J. Palmer", pts: 2.1, status: "final" },
-        { pos: "TE", name: "C. Otton", pts: 0.0, status: "pre" },
-        { pos: "RB", name: "J. Warren", pts: 2.0, status: "live" },
-        { pos: "WR", name: "C. Sutton", pts: 5.0, status: "final" },
-      ],
-    },
-  },
-  {
-    id: "l2",
-    platform: "espn",
-    name: "Office League",
-    week: 2,
-    you: {
-      team: "Marsh's Marauders",
-      record: "2-0",
-      total: 102.6,
-      starters: [
-        { pos: "QB", name: "P. Mahomes", pts: 21.8, status: "final" },
-        { pos: "RB", name: "C. McCaffrey", pts: 26.4, status: "final" },
-        { pos: "RB", name: "K. Walker", pts: 9.1, status: "live" },
-        { pos: "WR", name: "T. Hill", pts: 14.2, status: "live" },
-        { pos: "WR", name: "R. Odunze", pts: 10.9, status: "live" },
-        { pos: "TE", name: "M. Andrews", pts: 8.3, status: "live" },
-        { pos: "FLX", realPos: "WR", name: "J. Meyers", pts: 5.6, status: "final" },
-        { pos: "K", name: "J. Bates", pts: 8.0, status: "final" },
-        { pos: "DST", name: "49ers D/ST", pts: 6.3, status: "final" },
-      ],
-      bench: [
-        { pos: "RB", name: "T. Pollard", pts: 4.0, status: "final" },
-        { pos: "WR", name: "R. Rice", pts: 0.0, status: "pre" },
-        { pos: "QB", name: "B. Purdy", pts: 0.0, status: "pre" },
-        { pos: "K", name: "J. Sanders", pts: 6.0, status: "final" },
-        { pos: "TE", name: "D. Kincaid", pts: 3.0, status: "live" },
-      ],
-    },
-    opp: {
-      team: "Cubicle Crushers",
-      record: "0-2",
-      total: 95.1,
-      starters: [
-        { pos: "QB", name: "J. Burrow", pts: 18.9, status: "final" },
-        { pos: "RB", name: "J. Gibbs", pts: 15.7, status: "live" },
-        { pos: "RB", name: "A. Jones", pts: 7.8, status: "live" },
-        { pos: "WR", name: "J. Chase", pts: 20.1, status: "final" },
-        { pos: "WR", name: "D. Adams", pts: 9.4, status: "live" },
-        { pos: "TE", name: "D. Njoku", pts: 5.2, status: "live" },
-        { pos: "FLX", realPos: "RB", name: "R. Stevenson", pts: 0.0, status: "pre" },
-        { pos: "K", name: "B. McManus", pts: 7.0, status: "final" },
-        { pos: "DST", name: "Bills D/ST", pts: 10.0, status: "final" },
-      ],
-      bench: [
-        { pos: "RB", name: "Z. Charbonnet", pts: 3.0, status: "live" },
-        { pos: "WR", name: "D. Johnson", pts: 4.5, status: "final" },
-        { pos: "TE", name: "T. Higbee", pts: 0.0, status: "pre" },
-        { pos: "K", name: "Y. Koo", pts: 7.0, status: "final" },
-        { pos: "WR", name: "K. Allen", pts: 4.0, status: "live" },
-      ],
-    },
-  },
-  {
-    id: "l3",
-    platform: "yahoo",
-    name: "Dynasty Warriors",
-    week: 2,
-    you: {
-      team: "Marsh Madness",
-      record: "1-1",
-      total: 61.0,
-      starters: [
-        { pos: "QB", name: "C. Stroud", pts: 15.2, status: "final" },
-        { pos: "RB", name: "T. Etienne", pts: 6.4, status: "live" },
-        { pos: "RB", name: "N. Harris", pts: 4.8, status: "live" },
-        { pos: "WR", name: "R. Odunze", pts: 8.9, status: "live" },
-        { pos: "WR", name: "C. Ridley", pts: 0.0, status: "pre" },
-        { pos: "WR", name: "J. Jefferson", pts: 12.0, status: "final" },
-        { pos: "TE", name: "E. Engram", pts: 5.5, status: "final" },
-        { pos: "FLX", realPos: "WR", name: "T. Higgins", pts: 9.1, status: "live" },
-      ],
-      bench: [
-        { pos: "RB", name: "J. Ford", pts: 2.0, status: "final" },
-        { pos: "WR", name: "R. Shaheed", pts: 0.0, status: "pre" },
-        { pos: "QB", name: "S. Darnold", pts: 0.0, status: "pre" },
-        { pos: "RB", name: "C. Brooks", pts: 3.0, status: "live" },
-        { pos: "RB", name: "E. Mitchell", pts: 1.5, status: "pre" },
-        { pos: "WR", name: "M. Evans", pts: 6.0, status: "final" },
-        { pos: "WR", name: "D. Hopkins", pts: 4.0, status: "live" },
-        { pos: "TE", name: "Z. Ertz", pts: 2.5, status: "live" },
-        { pos: "QB", name: "D. Prescott", pts: 0.0, status: "pre" },
-        { pos: "WR", name: "L. McConkey", pts: 3.5, status: "final" },
-      ],
-    },
-    opp: {
-      team: "Endzone Enforcers",
-      record: "1-1",
-      total: 70.2,
-      starters: [
-        { pos: "QB", name: "T. Lawrence", pts: 12.8, status: "final" },
-        { pos: "RB", name: "J. Mixon", pts: 13.4, status: "final" },
-        { pos: "RB", name: "A. Kamara", pts: 7.7, status: "live" },
-        { pos: "WR", name: "A. St. Brown", pts: 6.2, status: "live" },
-        { pos: "WR", name: "T. McLaurin", pts: 11.0, status: "final" },
-        { pos: "WR", name: "B. Thomas", pts: 7.0, status: "live" },
-        { pos: "TE", name: "D. Goedert", pts: 4.4, status: "live" },
-        { pos: "FLX", realPos: "RB", name: "R. White", pts: 9.7, status: "final" },
-      ],
-      bench: [
-        { pos: "RB", name: "K. Hunt", pts: 5.0, status: "final" },
-        { pos: "WR", name: "J. Addison", pts: 3.3, status: "live" },
-        { pos: "TE", name: "L. Musgrave", pts: 0.0, status: "pre" },
-        { pos: "RB", name: "R. Mostert", pts: 2.0, status: "final" },
-        { pos: "RB", name: "C. Akers", pts: 1.0, status: "pre" },
-        { pos: "WR", name: "T. Diggs", pts: 3.0, status: "live" },
-        { pos: "WR", name: "R. Pearsall", pts: 2.0, status: "live" },
-        { pos: "TE", name: "H. Henry", pts: 3.0, status: "final" },
-        { pos: "QB", name: "G. Smith", pts: 0.0, status: "pre" },
-        { pos: "WR", name: "X. Worthy", pts: 4.0, status: "live" },
-      ],
-    },
-  },
-  {
-    id: "l4",
-    platform: "sleeper",
-    name: "Friends & Family",
-    week: 2,
-    you: {
-      team: "Marsh Attack",
-      total: 77.4,
-      record: "1-1",
-      starters: [
-        { pos: "QB", name: "J. Goff", pts: 17.6, status: "live" },
-        { pos: "RB", name: "D. Henry", pts: 5.9, status: "live" },
-        { pos: "RB", name: "J. Conner", pts: 10.2, status: "final" },
-        { pos: "WR", name: "A. Brown", pts: 13.1, status: "final" },
-        { pos: "WR", name: "D. Samuel", pts: 6.6, status: "live" },
-        { pos: "TE", name: "K. Pitts", pts: 3.0, status: "live" },
-        { pos: "FLX", realPos: "RB", name: "Z. Charbonnet", pts: 0.0, status: "pre" },
-        { pos: "K", name: "H. Butker", pts: 8.0, status: "final" },
-        { pos: "DST", name: "Steelers D/ST", pts: 14.0, status: "final" },
-      ],
-      bench: [
-        { pos: "RB", name: "A. Ekeler", pts: 4.5, status: "live" },
-        { pos: "WR", name: "R. Rice", pts: 0.0, status: "pre" },
-        { pos: "TE", name: "N. Fant", pts: 0.0, status: "pre" },
-        { pos: "K", name: "W. Lutz", pts: 5.0, status: "final" },
-        { pos: "RB", name: "D. Pierce", pts: 2.0, status: "pre" },
-        { pos: "WR", name: "J. Reed", pts: 3.0, status: "live" },
-      ],
-    },
-    opp: {
-      team: "Waiver Wire Wizards",
-      record: "2-0",
-      total: 60.0,
-      starters: [
-        { pos: "QB", name: "K. Murray", pts: 14.0, status: "final" },
-        { pos: "RB", name: "R. Stevenson", pts: 8.0, status: "live" },
-        { pos: "RB", name: "A. Ekeler", pts: 4.5, status: "live" },
-        { pos: "WR", name: "D. Moore", pts: 9.9, status: "final" },
-        { pos: "WR", name: "J. Downs", pts: 0.0, status: "pre" },
-        { pos: "TE", name: "T. Kelce", pts: 5.0, status: "live" },
-        { pos: "FLX", realPos: "RB", name: "T. Allgeier", pts: 6.0, status: "final" },
-        { pos: "K", name: "B. Aubrey", pts: 5.0, status: "final" },
-        { pos: "DST", name: "Broncos D/ST", pts: 9.0, status: "final" },
-      ],
-      bench: [
-        { pos: "RB", name: "K. Vidal", pts: 1.0, status: "final" },
-        { pos: "WR", name: "J. Palmer", pts: 2.1, status: "final" },
-        { pos: "TE", name: "I. Likely", pts: 0.0, status: "pre" },
-        { pos: "K", name: "D. Carlson", pts: 6.0, status: "final" },
-        { pos: "WR", name: "M. Pittman", pts: 3.0, status: "live" },
-        { pos: "TE", name: "C. Kmet", pts: 2.0, status: "pre" },
-      ],
-    },
-  },
-];
-
-// Attach a deterministic mock "projection" to every player so points can be colored
-// green (outperforming) / red (underperforming) once they've started playing.
-// Real data would pull this straight from each platform's projected-points field.
-function hashStr(s) {
-  let h = 0;
-  for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
-  return Math.abs(h);
-}
-function addProjections(list) {
-  return list.map((p) => {
-    const delta = ((hashStr(p.name) % 9) - 4) * 0.9; // spread of roughly -3.6 to +3.6
-    const proj = Math.max(0.5, +(p.pts - delta).toFixed(1));
-    return { ...p, proj };
-  });
-}
-const leagues = rawLeagues.map((l) => ({
-  ...l,
-  you: { ...l.you, starters: addProjections(l.you.starters), bench: addProjections(l.you.bench) },
-  opp: { ...l.opp, starters: addProjections(l.opp.starters), bench: addProjections(l.opp.bench) },
-}));
+// No mock leagues anymore - this only exists as a safe empty default before
+// any real Sleeper/ESPN data has loaded.
+const leagues = [];
 
 // ---------- Building blocks ----------
 
-// A real weekly NFL schedule (mock) so every player's team maps to one consistent
-// game - real data would come from each platform's schedule/live-scoring feed.
-const GAMES = [
-  { id: "g1", away: "NYJ", home: "BUF", slot: "thu", slotLabel: "Thursday", kickoff: "Thu 8:15 PM ET", date: "9/11", timeShort: "8:15" },
-  { id: "g2", away: "CIN", home: "MIA", slot: "sunEarly", slotLabel: "Sunday Early", kickoff: "Sun 1:00 PM ET", date: "9/14", timeShort: "1:00" },
-  { id: "g3", away: "BAL", home: "KC", slot: "sunEarly", slotLabel: "Sunday Early", kickoff: "Sun 1:00 PM ET", date: "9/14", timeShort: "1:00" },
-  { id: "g4", away: "PHI", home: "DAL", slot: "sunEarly", slotLabel: "Sunday Early", kickoff: "Sun 1:00 PM ET", date: "9/14", timeShort: "1:00" },
-  { id: "g5", away: "CLE", home: "PIT", slot: "sunEarly", slotLabel: "Sunday Early", kickoff: "Sun 1:00 PM ET", date: "9/14", timeShort: "1:00" },
-  { id: "g6", away: "SEA", home: "SF", slot: "sunLate", slotLabel: "Sunday Afternoon", kickoff: "Sun 4:25 PM ET", date: "9/14", timeShort: "4:25" },
-  { id: "g7", away: "MIN", home: "GB", slot: "sunLate", slotLabel: "Sunday Afternoon", kickoff: "Sun 4:05 PM ET", date: "9/14", timeShort: "4:05" },
-  { id: "g8", away: "LAR", home: "DET", slot: "sunLate", slotLabel: "Sunday Afternoon", kickoff: "Sun 4:25 PM ET", date: "9/14", timeShort: "4:25" },
-  { id: "g9", away: "LAC", home: "NE", slot: "sunNight", slotLabel: "Sunday Night", kickoff: "Sun 8:20 PM ET", date: "9/14", timeShort: "8:20" },
-  { id: "g10", away: "JAX", home: "HOU", slot: "mon", slotLabel: "Monday Night", kickoff: "Mon 8:15 PM ET", date: "9/15", timeShort: "8:15" },
-];
+// Real weekly NFL schedule, fetched from /api/nfl/schedule (see
+// setRealSchedule, called from the root component's fetch effect). Starts
+// empty - "schedule not loaded yet" is a real, honest state, not something
+// to paper over with fake games.
 const SLOTS = [
   { id: "thu", label: "Thursday" },
   { id: "sunEarly", label: "Sunday Early" },
@@ -868,17 +624,6 @@ const SLOTS = [
   { id: "mon", label: "Monday Night" },
 ];
 
-const TEAM_INFO = {};
-GAMES.forEach((g) => {
-  TEAM_INFO[g.home] = { opp: g.away, game: g };
-  TEAM_INFO[g.away] = { opp: g.home, game: g };
-});
-const NFL_TEAMS = Object.keys(TEAM_INFO);
-
-// Fallback for any real NFL team not in our small mock schedule above (real
-// rosters cover all 32 teams, our mock schedule only covers 20 fake-mapped
-// ones). Keeps the app from crashing on real data; the schedule/opponent
-// info here is still a placeholder until real NFL schedule data is wired in.
 const UNKNOWN_GAME = {
   id: "unknown",
   home: "?",
@@ -890,13 +635,11 @@ const UNKNOWN_GAME = {
   timeShort: "-",
 };
 
-// CURRENT_GAMES/CURRENT_TEAM_INFO start out pointing at the fake mock
-// schedule above, and get swapped for the real ESPN schedule once it loads
-// (see setRealSchedule, called from the root component's fetch effect).
-// Every place that needs "the schedule" reads through these, not the raw
-// GAMES/TEAM_INFO constants, so the swap is invisible to the rest of the app.
-let CURRENT_GAMES = GAMES;
-let CURRENT_TEAM_INFO = TEAM_INFO;
+// CURRENT_GAMES/CURRENT_TEAM_INFO start empty and get filled in once the
+// real NFL schedule loads (see setRealSchedule). Everything that needs "the
+// schedule" reads through these.
+let CURRENT_GAMES = [];
+let CURRENT_TEAM_INFO = {};
 
 function setRealSchedule(games) {
   CURRENT_GAMES = games;
@@ -912,12 +655,10 @@ function getTeamInfo(team) {
   return CURRENT_TEAM_INFO[team] || { opp: "?", game: UNKNOWN_GAME };
 }
 
-// Real data (from Sleeper etc.) carries the player's actual NFL team on
-// p.team - use that when present. Mock data has no such field, so it falls
-// back to a deterministic fake assignment for demo purposes only.
+// Every real player (Sleeper or ESPN) carries their actual NFL team on
+// p.team already.
 function getPlayerTeam(p) {
-  if (p.team) return p.team;
-  return NFL_TEAMS[hashStr(p.name) % NFL_TEAMS.length];
+  return p.team || null;
 }
 
 function getPtsClass(p) {
@@ -925,24 +666,6 @@ function getPtsClass(p) {
   if (p.pts > p.proj) return "fd-pts-over";
   if (p.pts < p.proj) return "fd-pts-under";
   return "fd-pts-even";
-}
-
-// Reshapes a player for a non-current week. Past weeks show as final (using the
-// same mock numbers as a stand-in for "historical" data). Future weeks haven't
-// been played, so they show as pre-game with projected points instead of live
-// ones. Real data would swap in that week's actual box score / schedule / matchup
-// projection instead of reusing week 2's numbers.
-function transformPlayerForWeek(p, week) {
-  if (week === CURRENT_WEEK) return p;
-  if (week < CURRENT_WEEK) return { ...p, status: "final" };
-  return { ...p, status: "pre", pts: p.proj };
-}
-
-function applyWeekView(team, week) {
-  const starters = team.starters.map((p) => transformPlayerForWeek(p, week));
-  const bench = team.bench.map((p) => transformPlayerForWeek(p, week));
-  const total = week === CURRENT_WEEK ? team.total : +starters.reduce((s, p) => s + p.pts, 0).toFixed(1);
-  return { ...team, starters, bench, total };
 }
 
 // Ties up a loose end: Sleeper has no real "has this game started/ended"
@@ -966,56 +689,47 @@ function syncTeamStatusWithSchedule(team) {
   };
 }
 
-// Game context for a player: real live score/clock/status when the real
-// ESPN schedule has loaded (game.isReal), otherwise a deterministic fake
-// derived from the game id, as a placeholder while loading or as a
-// fallback for mock data.
+// Game context for a player: real live score/clock/status once the real NFL
+// schedule has loaded. Before that (or for a team the schedule doesn't
+// recognize), this is an honest "unknown yet" state - zeros, not a fake
+// invented score.
 function mockGame(p) {
   const team = getPlayerTeam(p);
   const { opp, game } = getTeamInfo(team);
 
-  let quarter, clock, teamScore, oppScore;
-  if (game.isReal) {
-    quarter = game.period || 0;
-    clock = game.clock || "";
-    const homeScore = game.homeScore || 0;
-    const awayScore = game.awayScore || 0;
-    teamScore = team === game.home ? homeScore : awayScore;
-    oppScore = team === game.home ? awayScore : homeScore;
-  } else {
-    // score/clock derived from the GAME, not the player, so every player
-    // sharing a game sees the same (fake) live state
-    const gh = hashStr(game.id);
-    quarter = 1 + (gh % 4);
-    clock = `${(gh >> 5) % 15}:${String((gh >> 2) % 60).padStart(2, "0")}`;
-    const homeScore = 3 * (gh % 8);
-    const awayScore = 3 * ((gh >> 3) % 8);
-    teamScore = team === game.home ? homeScore : awayScore;
-    oppScore = team === game.home ? awayScore : homeScore;
+  if (!game.isReal) {
+    return { team, opp, kickoff: game.kickoff, quarter: 0, clock: "", teamScore: 0, oppScore: 0, game };
   }
 
-  return { team, opp, kickoff: game.kickoff, quarter, clock, teamScore, oppScore, game };
+  const homeScore = game.homeScore || 0;
+  const awayScore = game.awayScore || 0;
+  const teamScore = team === game.home ? homeScore : awayScore;
+  const oppScore = team === game.home ? awayScore : homeScore;
+  return {
+    team,
+    opp,
+    kickoff: game.kickoff,
+    quarter: game.period || 0,
+    clock: game.clock || "",
+    teamScore,
+    oppScore,
+    game,
+  };
 }
 
 // One-line matchup summary shown under a player's name on the Scoreboard.
-// Uses the real game's own state (pre/in/post) once real data has loaded,
-// since that's more trustworthy than the player's own placeholder status.
+// Uses the real game's own state (pre/in/post) once real data has loaded.
+// Before that, shows an honest "schedule loading" line instead of guessing.
 function gameLine(p) {
   const g = mockGame(p);
-  const state = g.game.isReal
-    ? g.game.state
-    : p.status === "pre"
-    ? "pre"
-    : p.status === "live"
-    ? "in"
-    : "post";
-  if (state === "pre") {
+  if (!g.game.isReal) return "Schedule loading...";
+  if (g.game.state === "pre") {
     return `${g.team} vs. ${g.opp}  ${g.game.date} ${g.game.timeShort} EDT`;
   }
-  if (state === "in") {
-    return `${g.team} ${g.teamScore} - ${g.opp} ${g.oppScore}  ${g.quarter}Q ${g.clock}`;
+  if (g.game.state === "post") {
+    return `${g.team} ${g.teamScore} - ${g.opp} ${g.oppScore}  FINAL`;
   }
-  return `${g.team} ${g.teamScore} - ${g.opp} ${g.oppScore}  FINAL`;
+  return `${g.team} ${g.teamScore} - ${g.opp} ${g.oppScore}  ${g.quarter}Q ${g.clock}`;
 }
 
 function StarterRow({ p, onSelect, showGame }) {
@@ -1141,55 +855,12 @@ function LeagueColumn({ league, onSelectPlayer, colIndex, showProjected }) {
   );
 }
 
-// Real box score (pulled from Sleeper's stats endpoint) when present on the
-// player, otherwise a deterministic fake breakdown so mock data still has
-// something to show.
+// Real box score only. If the platform hasn't given us real stats yet (game
+// hasn't happened, or that position isn't mapped for that platform), this is
+// just empty - the "THIS WEEK" section on the player modal simply doesn't
+// show rather than displaying invented numbers.
 function mockBoxScore(p) {
-  if (p.boxScore) return p.boxScore;
-  const cat = p.realPos || p.pos;
-  const h = hashStr(p.name);
-  const scale = Math.max(p.pts, p.proj, 1);
-  if (cat === "QB") {
-    return [
-      { label: "PASS YDS", value: Math.round(scale * 9 + (h % 40)) },
-      { label: "PASS TD", value: scale > 15 ? 1 + (h % 2) : h % 2 },
-      { label: "INT", value: h % 5 === 0 ? 1 : 0 },
-      { label: "RUSH YDS", value: (h >> 3) % 28 },
-    ];
-  }
-  if (cat === "RB") {
-    return [
-      { label: "RUSH YDS", value: Math.round(scale * 6 + (h % 25)) },
-      { label: "RUSH TD", value: h % 3 === 0 ? 1 : 0 },
-      { label: "REC", value: h % 6 },
-      { label: "REC YDS", value: (h >> 2) % 35 },
-    ];
-  }
-  if (cat === "WR" || cat === "TE") {
-    const rec = Math.max(1, h % 9);
-    return [
-      { label: "REC", value: rec },
-      { label: "REC YDS", value: Math.round(scale * 7 + (h % 30)) },
-      { label: "REC TD", value: h % 4 === 0 ? 1 : 0 },
-      { label: "TARGETS", value: rec + (h % 4) },
-    ];
-  }
-  if (cat === "K") {
-    const fgMade = h % 4;
-    return [
-      { label: "FG MADE", value: `${fgMade}/${fgMade + (h % 2)}` },
-      { label: "XP MADE", value: h % 5 },
-    ];
-  }
-  if (cat === "DST") {
-    return [
-      { label: "SACKS", value: h % 5 },
-      { label: "INT", value: h % 3 },
-      { label: "FUM REC", value: h % 2 },
-      { label: "PTS ALLOWED", value: h % 28 },
-    ];
-  }
-  return [];
+  return p.boxScore || [];
 }
 
 function GameStrip({ player, game }) {
@@ -2009,22 +1680,10 @@ function SetupScreen({
 
 // ---------- Live dashboard screen ----------
 
-function LiveScreen({ orderedLeagues, selectedWeek, isRealData }) {
+function LiveScreen({ orderedLeagues, selectedWeek }) {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const isCurrentWeek = selectedWeek === CURRENT_WEEK;
-
-  // Real data for the selected week is already correct as-is, no need to run
-  // it through the mock past/future simulation. Only mock data gets that.
-  // (Status-vs-schedule syncing already happened once, at the root level,
-  // so both this screen and Help Me Root see the same corrected data.)
-  const viewLeagues = React.useMemo(() => {
-    if (isRealData) return orderedLeagues;
-    return orderedLeagues.map((l) => ({
-      ...l,
-      you: applyWeekView(l.you, selectedWeek),
-      opp: applyWeekView(l.opp, selectedWeek),
-    }));
-  }, [orderedLeagues, selectedWeek, isRealData]);
+  const viewLeagues = orderedLeagues;
 
   return (
     <div>
@@ -2385,7 +2044,6 @@ export default function LeaguedUpApp() {
   // haven't loaded or failed just aren't in this list, that's a real
   // "not connected" state, not a fake demo of leagues that aren't yours.
   const allRealLeagues = [...(sleeperLeagues || []), ...espnLeagues];
-  const isRealData = allRealLeagues.length > 0;
   const activeLeagues = allRealLeagues.filter((l) => !removedIds.includes(l.id));
   const activeIdsKey = activeLeagues.map((l) => l.id).join(",");
 
@@ -2550,7 +2208,7 @@ export default function LeaguedUpApp() {
           selectedWeek={selectedWeek}
         />
       ) : (
-        <LiveScreen orderedLeagues={syncedLeagues} selectedWeek={selectedWeek} isRealData={isRealData} />
+        <LiveScreen orderedLeagues={syncedLeagues} selectedWeek={selectedWeek} />
       )}
     </div>
   );
