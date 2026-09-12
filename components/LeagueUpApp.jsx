@@ -22,6 +22,14 @@ const PLATFORM_COLORS = {
   yahoo: "#7C2AE8",
 };
 
+// Grabs espn_s2/SWID cookies from a logged-in ESPN browser session and
+// hands them to LeagueUp via a URL fragment (fragments never reach the
+// server, so this stays entirely client-side). Meant to be saved as a
+// bookmark's URL, not run directly - see the setup steps in the Add
+// Leagues screen. Update the domain below if the deployed URL changes.
+const ESPN_BOOKMARKLET =
+  'javascript:(function(){function g(n){var m=document.cookie.match(new RegExp("(?:^|; )"+n+"=([^;]*)"));return m?m[1]:null;}var s=g("espn_s2"),w=g("SWID");if(!s||!w){alert("Could not find ESPN login cookies. Make sure you\'re logged into ESPN Fantasy Football in this browser tab, then tap the bookmark again.");return;}location.href="https://leaguedup.vercel.app/#espn_connect=1&espn_s2="+encodeURIComponent(s)+"&swid="+encodeURIComponent(w);})();';
+
 const styles = `
 @import url('https://fonts.googleapis.com/css2?family=Oswald:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
@@ -1607,8 +1615,6 @@ function ReorderList({ order, leaguesData, onReorder, onRemove }) {
 
 // ---------- Setup screen ----------
 
-const PLATFORMS = ["sleeper", "espn", "yahoo"];
-
 const inputStyle = {
   width: "100%",
   boxSizing: "border-box",
@@ -1620,66 +1626,16 @@ const inputStyle = {
   outline: "none",
 };
 
-function LeagueSlot({ index, slot, onChange }) {
+function PlatformBox({ label, color, children }) {
   return (
     <div style={{ border: `1px solid ${C.line}`, backgroundColor: C.panel, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
-        <span className="fd-display" style={{ fontSize: 12, color: C.red }}>
-          LEAGUE {String(index + 1).padStart(2, "0")}
+        <span className="fd-display" style={{ fontSize: 12, color }}>
+          {label}
         </span>
         <div style={{ flex: 1, height: 1, backgroundColor: C.line }} />
       </div>
-
-      <div style={{ display: "flex", gap: 6, marginBottom: 12 }}>
-        {PLATFORMS.map((p) => (
-          <button
-            key={p}
-            onClick={() => onChange({ ...slot, platform: p })}
-            className="fd-body"
-            style={{
-              flex: 1,
-              padding: "8px 0",
-              fontSize: 11,
-              fontWeight: 700,
-              letterSpacing: 1,
-              color: slot.platform === p ? C.bg : C.grey,
-              backgroundColor: slot.platform === p ? C.gold : "transparent",
-              border: `1px solid ${slot.platform === p ? C.gold : C.line}`,
-              cursor: "pointer",
-            }}
-          >
-            {p.toUpperCase()}
-          </button>
-        ))}
-      </div>
-
-      {slot.platform === "sleeper" && (
-        <input className="fd-body" placeholder="Sleeper username or league ID" style={inputStyle} />
-      )}
-      {slot.platform === "espn" && (
-        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-          <input className="fd-body" placeholder="League ID" style={inputStyle} />
-          <input className="fd-body" placeholder="espn_s2 (private leagues only)" style={inputStyle} />
-        </div>
-      )}
-      {slot.platform === "yahoo" && (
-        <button
-          className="fd-body"
-          style={{
-            width: "100%",
-            padding: "10px 0",
-            fontSize: 12,
-            fontWeight: 700,
-            letterSpacing: 1,
-            color: C.bg,
-            backgroundColor: C.white,
-            border: "none",
-            cursor: "pointer",
-          }}
-        >
-          CONNECT WITH YAHOO
-        </button>
-      )}
+      {children}
     </div>
   );
 }
@@ -1692,14 +1648,14 @@ function SetupScreen({
   onRemoveLeague,
   sleeperUsername,
   onChangeSleeperUsername,
+  espnCookies,
+  espnLeagueIds,
+  onAddEspnLeagueId,
+  onRemoveEspnLeagueId,
 }) {
   const [usernameDraft, setUsernameDraft] = useState(sleeperUsername || "");
-  const [slots, setSlots] = useState([
-    { platform: "sleeper" },
-    { platform: "espn" },
-    { platform: "yahoo" },
-    { platform: "sleeper" },
-  ]);
+  const [espnLeagueIdDraft, setEspnLeagueIdDraft] = useState("");
+  const [showBookmarklet, setShowBookmarklet] = useState(false);
 
   return (
     <div style={{ maxWidth: 720, margin: "0 auto", padding: "20px 20px 80px" }}>
@@ -1742,39 +1698,6 @@ function SetupScreen({
 
       <div style={{ marginBottom: 32 }}>
         <div className="fd-display" style={{ fontSize: 14, color: C.gold, letterSpacing: 1, marginBottom: 4 }}>
-          SLEEPER USERNAME
-        </div>
-        <p className="fd-body" style={{ fontSize: 12, color: C.grey, margin: "0 0 10px" }}>
-          Saved on this device, so you only have to enter it once.
-        </p>
-        <div style={{ display: "flex", gap: 8 }}>
-          <input
-            className="fd-body"
-            value={usernameDraft}
-            onChange={(e) => setUsernameDraft(e.target.value)}
-            placeholder="Your Sleeper username"
-            style={inputStyle}
-          />
-          <button
-            className="fd-display"
-            onClick={() => onChangeSleeperUsername(usernameDraft.trim())}
-            style={{
-              padding: "0 18px",
-              fontSize: 13,
-              color: C.bg,
-              backgroundColor: C.gold,
-              border: "none",
-              cursor: "pointer",
-              flexShrink: 0,
-            }}
-          >
-            Save
-          </button>
-        </div>
-      </div>
-
-      <div style={{ marginBottom: 32 }}>
-        <div className="fd-display" style={{ fontSize: 14, color: C.gold, letterSpacing: 1, marginBottom: 4 }}>
           REORDER
         </div>
         <p className="fd-body" style={{ fontSize: 12, color: C.grey, margin: "0 0 10px" }}>
@@ -1789,18 +1712,207 @@ function SetupScreen({
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
-        {slots.map((slot, i) => (
-          <LeagueSlot
-            key={i}
-            index={i}
-            slot={slot}
-            onChange={(next) => {
-              const copy = [...slots];
-              copy[i] = next;
-              setSlots(copy);
+        <PlatformBox label="ADD SLEEPER LEAGUES" color={PLATFORM_COLORS.sleeper}>
+          <p className="fd-body" style={{ fontSize: 12, color: C.grey, margin: "0 0 10px" }}>
+            Pulls in every league tied to this username. Removed one below and
+            want it back? Hit Save again, it resets your Sleeper list.
+          </p>
+          <div style={{ display: "flex", gap: 8 }}>
+            <input
+              className="fd-body"
+              value={usernameDraft}
+              onChange={(e) => setUsernameDraft(e.target.value)}
+              placeholder="Your Sleeper username"
+              style={inputStyle}
+            />
+            <button
+              className="fd-display"
+              onClick={() => onChangeSleeperUsername(usernameDraft.trim())}
+              style={{
+                padding: "0 18px",
+                fontSize: 13,
+                color: C.bg,
+                backgroundColor: C.gold,
+                border: "none",
+                cursor: "pointer",
+                flexShrink: 0,
+              }}
+            >
+              Save
+            </button>
+          </div>
+        </PlatformBox>
+
+        <PlatformBox label="ADD ESPN LEAGUE" color={PLATFORM_COLORS.espn}>
+          {!espnCookies ? (
+            <>
+              <p className="fd-body" style={{ fontSize: 12, color: C.grey, margin: "0 0 10px" }}>
+                ESPN has no direct login for outside apps, so this uses a
+                one-time bookmarklet that grabs your login from a browser
+                tab where you're already signed into ESPN. Works entirely on
+                your phone, nothing to install.
+              </p>
+              <button
+                className="fd-body"
+                onClick={() => setShowBookmarklet((v) => !v)}
+                style={{
+                  width: "100%",
+                  padding: "10px 0",
+                  fontSize: 12,
+                  fontWeight: 700,
+                  letterSpacing: 1,
+                  color: C.bg,
+                  backgroundColor: C.white,
+                  border: "none",
+                  cursor: "pointer",
+                }}
+              >
+                {showBookmarklet ? "HIDE SETUP STEPS" : "SET UP ESPN CONNECTION"}
+              </button>
+              {showBookmarklet && (
+                <div style={{ marginTop: 12 }}>
+                  <ol className="fd-body" style={{ fontSize: 12, color: C.grey, paddingLeft: 18, margin: "0 0 10px" }}>
+                    <li style={{ marginBottom: 6 }}>
+                      Bookmark any page in your phone's browser (any page works, you'll overwrite the address next).
+                    </li>
+                    <li style={{ marginBottom: 6 }}>
+                      Edit that bookmark. Rename it "Connect ESPN" and replace its saved address with the code below (copy it exactly, including "javascript:").
+                    </li>
+                    <li style={{ marginBottom: 6 }}>
+                      Log into espn.com/fantasy in that same browser.
+                    </li>
+                    <li style={{ marginBottom: 6 }}>
+                      While on an ESPN page, open your bookmarks and tap "Connect ESPN." You'll be sent back here, connected.
+                    </li>
+                  </ol>
+                  <textarea
+                    readOnly
+                    className="fd-body"
+                    value={ESPN_BOOKMARKLET}
+                    onFocus={(e) => e.target.select()}
+                    style={{ ...inputStyle, height: 90, resize: "none", fontSize: 10 }}
+                  />
+                </div>
+              )}
+            </>
+          ) : (
+            <>
+              <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 12 }}>
+                <span style={{ width: 6, height: 6, borderRadius: "50%", backgroundColor: C.green }} />
+                <span className="fd-body" style={{ fontSize: 12, color: C.green, fontWeight: 700 }}>
+                  ESPN CONNECTED
+                </span>
+                <button
+                  className="fd-body"
+                  onClick={() => setShowBookmarklet((v) => !v)}
+                  style={{
+                    marginLeft: "auto",
+                    fontSize: 10,
+                    color: C.grey,
+                    background: "none",
+                    border: `1px solid ${C.line}`,
+                    padding: "3px 6px",
+                    cursor: "pointer",
+                  }}
+                >
+                  Reconnect
+                </button>
+              </div>
+              {showBookmarklet && (
+                <div style={{ marginBottom: 12 }}>
+                  <p className="fd-body" style={{ fontSize: 11, color: C.grey, margin: "0 0 6px" }}>
+                    Login expired? Log into espn.com/fantasy again, then tap
+                    your "Connect ESPN" bookmark again.
+                  </p>
+                  <textarea
+                    readOnly
+                    className="fd-body"
+                    value={ESPN_BOOKMARKLET}
+                    onFocus={(e) => e.target.select()}
+                    style={{ ...inputStyle, height: 90, resize: "none", fontSize: 10 }}
+                  />
+                </div>
+              )}
+              {espnLeagueIds.length > 0 && (
+                <div style={{ marginBottom: 10, display: "flex", flexDirection: "column", gap: 6 }}>
+                  {espnLeagueIds.map((id) => (
+                    <div
+                      key={id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 8,
+                        padding: "6px 10px",
+                        border: `1px solid ${C.line}`,
+                        backgroundColor: C.bg,
+                      }}
+                    >
+                      <span className="fd-body" style={{ fontSize: 12, color: C.white, flex: 1 }}>
+                        League {id}
+                      </span>
+                      <button
+                        onClick={() => onRemoveEspnLeagueId(id)}
+                        style={{ background: "none", border: "none", color: C.grey, cursor: "pointer" }}
+                        aria-label={`Remove ESPN league ${id}`}
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                <input
+                  className="fd-body"
+                  value={espnLeagueIdDraft}
+                  onChange={(e) => setEspnLeagueIdDraft(e.target.value)}
+                  placeholder="ESPN League ID"
+                  style={inputStyle}
+                />
+                <button
+                  className="fd-display"
+                  onClick={() => {
+                    const id = espnLeagueIdDraft.trim();
+                    if (id) {
+                      onAddEspnLeagueId(id);
+                      setEspnLeagueIdDraft("");
+                    }
+                  }}
+                  style={{
+                    padding: "0 18px",
+                    fontSize: 13,
+                    color: C.bg,
+                    backgroundColor: C.gold,
+                    border: "none",
+                    cursor: "pointer",
+                    flexShrink: 0,
+                  }}
+                >
+                  Add
+                </button>
+              </div>
+            </>
+          )}
+        </PlatformBox>
+
+        <PlatformBox label="ADD YAHOO LEAGUE" color={PLATFORM_COLORS.yahoo}>
+          <button
+            className="fd-body"
+            style={{
+              width: "100%",
+              padding: "10px 0",
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: 1,
+              color: C.bg,
+              backgroundColor: C.white,
+              border: "none",
+              cursor: "pointer",
             }}
-          />
-        ))}
+          >
+            CONNECT WITH YAHOO
+          </button>
+        </PlatformBox>
       </div>
 
       <button
@@ -1988,6 +2100,9 @@ const LS_KEYS = {
   username: "leagueup_sleeper_username",
   order: "leagueup_league_order",
   removed: "leagueup_removed_ids",
+  espnS2: "leagueup_espn_s2",
+  espnSwid: "leagueup_espn_swid",
+  espnLeagueIds: "leagueup_espn_league_ids",
 };
 
 export default function LeaguedUpApp() {
@@ -1996,25 +2111,57 @@ export default function LeaguedUpApp() {
   const [selectedWeek, setSelectedWeek] = useState(CURRENT_WEEK);
   const [secondsAgo, setSecondsAgo] = useState(0);
 
-  // Sleeper username, retry counter, and per-device saved order/removals.
-  // Start at safe defaults (matches server render), then load whatever was
-  // saved on this device once mounted in the browser, avoiding a hydration
-  // mismatch between server and client.
+  // Sleeper username, ESPN cookies/league ids, retry counter, and per-device
+  // saved order/removals. Start at safe defaults (matches server render),
+  // then load whatever was saved on this device once mounted in the
+  // browser, avoiding a hydration mismatch between server and client.
   const [sleeperUsername, setSleeperUsernameState] = useState("");
+  const [espnCookies, setEspnCookiesState] = useState(null); // { s2, swid } | null
+  const [espnLeagueIds, setEspnLeagueIdsState] = useState([]);
   const [retryCount, setRetryCount] = useState(0);
   const [removedIds, setRemovedIds] = useState([]);
   const [leagueOrder, setLeagueOrder] = useState(leagues.map((l) => l.id));
+
+  // Picks up cookies handed off by the ESPN bookmarklet (see the bookmarklet
+  // setup instructions), which lands back here as a URL fragment like
+  // #espn_connect=1&espn_s2=...&swid=.... Fragments never hit the server, so
+  // this stays entirely client-side.
+  React.useEffect(() => {
+    if (!window.location.hash.includes("espn_connect=1")) return;
+    const params = new URLSearchParams(window.location.hash.replace(/^#/, ""));
+    const s2 = params.get("espn_s2");
+    const swid = params.get("swid");
+    if (s2 && swid) {
+      const cookies = { s2, swid };
+      setEspnCookiesState(cookies);
+      try {
+        localStorage.setItem(LS_KEYS.espnS2, s2);
+        localStorage.setItem(LS_KEYS.espnSwid, swid);
+      } catch {}
+      setPage("scoreboard");
+      setScreen("setup"); // show them the "connected" state right away
+    }
+    window.history.replaceState(null, "", window.location.pathname);
+  }, []);
 
   React.useEffect(() => {
     try {
       const savedUsername = localStorage.getItem(LS_KEYS.username);
       const savedOrder = JSON.parse(localStorage.getItem(LS_KEYS.order) || "null");
       const savedRemoved = JSON.parse(localStorage.getItem(LS_KEYS.removed) || "null");
+      const savedEspnS2 = localStorage.getItem(LS_KEYS.espnS2);
+      const savedEspnSwid = localStorage.getItem(LS_KEYS.espnSwid);
+      const savedEspnLeagueIds = JSON.parse(localStorage.getItem(LS_KEYS.espnLeagueIds) || "null");
       if (savedUsername) setSleeperUsernameState(savedUsername);
+      if (savedEspnS2 && savedEspnSwid) setEspnCookiesState({ s2: savedEspnS2, swid: savedEspnSwid });
+      if (savedEspnLeagueIds) setEspnLeagueIdsState(savedEspnLeagueIds);
+      if (!savedUsername && !(savedEspnS2 && savedEspnSwid)) {
+        setScreen("setup"); // no leagues connected yet - start on Add Leagues, not an empty Scoreboard
+      }
       if (savedOrder) setLeagueOrder(savedOrder);
       if (savedRemoved) setRemovedIds(savedRemoved);
     } catch {
-      // localStorage unavailable (private browsing, etc) - just start fresh
+      setScreen("setup"); // localStorage unavailable - safest to just let them add leagues
     }
   }, []);
 
@@ -2023,7 +2170,37 @@ export default function LeaguedUpApp() {
     try {
       localStorage.setItem(LS_KEYS.username, name);
     } catch {}
+    // Hitting Save is an explicit "give me everything again" action, so it
+    // brings back any Sleeper leagues you'd previously removed. Leagues from
+    // other platforms you've removed stay removed - this only resets Sleeper.
+    setRemovedIds((prev) =>
+      prev.filter((id) => {
+        const league = allRealLeagues.find((l) => l.id === id);
+        return league ? league.platform !== "sleeper" : true;
+      })
+    );
   }
+
+  function addEspnLeagueId(id) {
+    setEspnLeagueIdsState((prev) => {
+      if (prev.includes(id)) return prev;
+      const next = [...prev, id];
+      try {
+        localStorage.setItem(LS_KEYS.espnLeagueIds, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
+  function removeEspnLeagueId(id) {
+    setEspnLeagueIdsState((prev) => {
+      const next = prev.filter((x) => x !== id);
+      try {
+        localStorage.setItem(LS_KEYS.espnLeagueIds, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
+
   React.useEffect(() => {
     try {
       localStorage.setItem(LS_KEYS.order, JSON.stringify(leagueOrder));
@@ -2038,32 +2215,71 @@ export default function LeaguedUpApp() {
   // Real Sleeper data, fetched once here and shared by the Scoreboard, Help
   // Me Root, and the Add Leagues reorder list, so all three are always
   // looking at the same actual leagues instead of Scoreboard alone.
-  const [realLeagues, setRealLeagues] = useState(null);
-  const [loadError, setLoadError] = useState(null);
+  const [sleeperLeagues, setSleeperLeagues] = useState(null);
+  const [sleeperError, setSleeperError] = useState(null);
 
   React.useEffect(() => {
     if (!sleeperUsername) {
-      setRealLeagues(null);
-      setLoadError(null);
+      setSleeperLeagues(null);
+      setSleeperError(null);
       return;
     }
     let cancelled = false;
-    setRealLeagues(null);
-    setLoadError(null);
+    setSleeperLeagues(null);
+    setSleeperError(null);
     fetch(`/api/sleeper/all?username=${sleeperUsername}&week=${selectedWeek}`)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
-        if (data.error) setLoadError(data.error);
-        else setRealLeagues(data.leagues);
+        if (data.error) setSleeperError(data.error);
+        else setSleeperLeagues(data.leagues);
       })
       .catch(() => {
-        if (!cancelled) setLoadError("Could not reach the Sleeper API route.");
+        if (!cancelled) setSleeperError("Could not reach the Sleeper API route.");
       });
     return () => {
       cancelled = true;
     };
   }, [selectedWeek, sleeperUsername, retryCount]);
+
+  // Real ESPN data, one league at a time (ESPN has no "give me every league"
+  // endpoint like Sleeper does, each league id is fetched separately).
+  const [espnLeagues, setEspnLeagues] = useState([]);
+  const [espnErrors, setEspnErrors] = useState({}); // league_id -> error string
+
+  React.useEffect(() => {
+    if (!espnCookies || espnLeagueIds.length === 0) {
+      setEspnLeagues([]);
+      setEspnErrors({});
+      return;
+    }
+    let cancelled = false;
+    Promise.all(
+      espnLeagueIds.map((id) =>
+        fetch(
+          `/api/espn/league?league_id=${id}&espn_s2=${encodeURIComponent(espnCookies.s2)}&swid=${encodeURIComponent(
+            espnCookies.swid
+          )}&week=${selectedWeek}&year=2026`
+        )
+          .then((res) => res.json())
+          .then((data) => ({ id, data }))
+          .catch(() => ({ id, data: { error: "Could not reach the ESPN API route." } }))
+      )
+    ).then((results) => {
+      if (cancelled) return;
+      const okLeagues = [];
+      const errors = {};
+      results.forEach(({ id, data }) => {
+        if (data.error) errors[id] = data.error;
+        else okLeagues.push(data);
+      });
+      setEspnLeagues(okLeagues);
+      setEspnErrors(errors);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [espnCookies, espnLeagueIds, selectedWeek, retryCount]);
 
   // Real NFL schedule/live scores, shared by the Scoreboard's per-player
   // matchup line, the player modal, and Help Me Root's game/timeslot picker.
@@ -2093,12 +2309,12 @@ export default function LeaguedUpApp() {
     };
   }, [selectedWeek]);
 
-  // No silent mock fallback anymore - if there's no username or the fetch
-  // failed, that's a real "not connected" state, not a fake demo of leagues
-  // that aren't actually yours.
-  const sourceLeagues = realLeagues || [];
-  const isRealData = !!realLeagues;
-  const activeLeagues = sourceLeagues.filter((l) => !removedIds.includes(l.id));
+  // Sleeper + ESPN combined. No silent mock fallback anymore - leagues that
+  // haven't loaded or failed just aren't in this list, that's a real
+  // "not connected" state, not a fake demo of leagues that aren't yours.
+  const allRealLeagues = [...(sleeperLeagues || []), ...espnLeagues];
+  const isRealData = allRealLeagues.length > 0;
+  const activeLeagues = allRealLeagues.filter((l) => !removedIds.includes(l.id));
   const activeIdsKey = activeLeagues.map((l) => l.id).join(",");
 
   // Keeps leagueOrder in sync whenever the active league set changes (real
@@ -2120,7 +2336,7 @@ export default function LeaguedUpApp() {
 
   // Corrects each player's pre/live/final status against the real schedule
   // once it's loaded, so the Scoreboard and Help Me Root both work off the
-  // same corrected data instead of Sleeper's rough points>0 guess.
+  // same corrected data instead of each platform's rough points>0 guess.
   const syncedLeagues = React.useMemo(
     () =>
       orderedLeagues.map((l) => ({
@@ -2159,7 +2375,7 @@ export default function LeaguedUpApp() {
         selectedWeek={selectedWeek}
         setSelectedWeek={setSelectedWeek}
       />
-      {!sleeperUsername && (
+      {!sleeperUsername && !espnCookies && (
         <div style={{ padding: "30px 20px", textAlign: "center" }}>
           <div className="fd-body" style={{ color: C.grey, fontSize: 13, marginBottom: 12 }}>
             No leagues connected yet.
@@ -2183,13 +2399,13 @@ export default function LeaguedUpApp() {
           </button>
         </div>
       )}
-      {sleeperUsername && loadError && (
+      {sleeperUsername && sleeperError && (
         <div style={{ padding: "30px 20px", textAlign: "center" }}>
           <div className="fd-display" style={{ color: C.red, fontSize: 16, marginBottom: 4 }}>
             League Connection Error
           </div>
           <div className="fd-body" style={{ color: C.grey, fontSize: 11, marginBottom: 12 }}>
-            {loadError}
+            {sleeperError}
           </div>
           <button
             className="fd-display"
@@ -2207,9 +2423,36 @@ export default function LeaguedUpApp() {
           </button>
         </div>
       )}
-      {sleeperUsername && !realLeagues && !loadError && (
+      {sleeperUsername && !sleeperLeagues && !sleeperError && (
         <div className="fd-body" style={{ color: C.grey, fontSize: 12, padding: 10, textAlign: "center" }}>
           Loading your real Sleeper leagues...
+        </div>
+      )}
+      {Object.keys(espnErrors).length > 0 && (
+        <div style={{ padding: "20px", textAlign: "center" }}>
+          <div className="fd-display" style={{ color: C.red, fontSize: 14, marginBottom: 4 }}>
+            ESPN Connection Error
+          </div>
+          {Object.entries(espnErrors).map(([id, err]) => (
+            <div key={id} className="fd-body" style={{ color: C.grey, fontSize: 11, marginBottom: 4 }}>
+              League {id}: {err}
+            </div>
+          ))}
+          <button
+            className="fd-display"
+            onClick={() => setRetryCount((c) => c + 1)}
+            style={{
+              padding: "8px 18px",
+              fontSize: 13,
+              color: C.bg,
+              backgroundColor: C.red,
+              border: "none",
+              cursor: "pointer",
+              marginTop: 8,
+            }}
+          >
+            Reconnect
+          </button>
         </div>
       )}
       {scheduleError && (
@@ -2228,6 +2471,10 @@ export default function LeaguedUpApp() {
           onRemoveLeague={(id) => setRemovedIds((prev) => [...prev, id])}
           sleeperUsername={sleeperUsername}
           onChangeSleeperUsername={setSleeperUsername}
+          espnCookies={espnCookies}
+          espnLeagueIds={espnLeagueIds}
+          onAddEspnLeagueId={addEspnLeagueId}
+          onRemoveEspnLeagueId={removeEspnLeagueId}
         />
       ) : (
         <LiveScreen orderedLeagues={syncedLeagues} selectedWeek={selectedWeek} isRealData={isRealData} />
