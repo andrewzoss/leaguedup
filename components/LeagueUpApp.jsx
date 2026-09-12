@@ -937,6 +937,27 @@ function applyWeekView(team, week) {
   return { ...team, starters, bench, total };
 }
 
+// Ties up a loose end: Sleeper has no real "has this game started/ended"
+// field, so each player arrives with a rough guess (points > 0 = "live").
+// Once the real NFL schedule has loaded, this replaces that guess with the
+// player's own real game state (pre/in/post -> pre/live/final), so the
+// point coloring and game-info line are both driven by the same real data.
+function syncPlayerStatusWithSchedule(p) {
+  const team = getPlayerTeam(p);
+  const { game } = getTeamInfo(team);
+  if (!game.isReal) return p; // schedule hasn't loaded yet, or team unknown - leave the guess
+  const status = game.state === "pre" ? "pre" : game.state === "post" ? "final" : "live";
+  return { ...p, status };
+}
+
+function syncTeamStatusWithSchedule(team) {
+  return {
+    ...team,
+    starters: team.starters.map(syncPlayerStatusWithSchedule),
+    bench: team.bench.map(syncPlayerStatusWithSchedule),
+  };
+}
+
 // Game context for a player: real live score/clock/status when the real
 // ESPN schedule has loaded (game.isReal), otherwise a deterministic fake
 // derived from the game id, as a placeholder while loading or as a
@@ -1112,9 +1133,11 @@ function LeagueColumn({ league, onSelectPlayer, colIndex, showProjected }) {
   );
 }
 
-// Deterministic mock box score - the actual stats that make up the fantasy points.
-// Real data would pull this from each platform's boxscore/player-stats endpoint.
+// Real box score (pulled from Sleeper's stats endpoint) when present on the
+// player, otherwise a deterministic fake breakdown so mock data still has
+// something to show.
 function mockBoxScore(p) {
+  if (p.boxScore) return p.boxScore;
   const cat = p.realPos || p.pos;
   const h = hashStr(p.name);
   const scale = Math.max(p.pts, p.proj, 1);
@@ -1661,7 +1684,16 @@ function LeagueSlot({ index, slot, onChange }) {
   );
 }
 
-function SetupScreen({ onGoLive, leagueOrder, onReorderLeagues, leaguesData, onRemoveLeague }) {
+function SetupScreen({
+  onGoLive,
+  leagueOrder,
+  onReorderLeagues,
+  leaguesData,
+  onRemoveLeague,
+  sleeperUsername,
+  onChangeSleeperUsername,
+}) {
+  const [usernameDraft, setUsernameDraft] = useState(sleeperUsername || "");
   const [slots, setSlots] = useState([
     { platform: "sleeper" },
     { platform: "espn" },
@@ -1705,6 +1737,39 @@ function SetupScreen({ onGoLive, leagueOrder, onReorderLeagues, leaguesData, onR
             starters into one live view, updated all game day. Add as many as
             you want, then scroll right on the Scoreboard to see the rest.
           </p>
+        </div>
+      </div>
+
+      <div style={{ marginBottom: 32 }}>
+        <div className="fd-display" style={{ fontSize: 14, color: C.gold, letterSpacing: 1, marginBottom: 4 }}>
+          SLEEPER USERNAME
+        </div>
+        <p className="fd-body" style={{ fontSize: 12, color: C.grey, margin: "0 0 10px" }}>
+          Saved on this device, so you only have to enter it once.
+        </p>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            className="fd-body"
+            value={usernameDraft}
+            onChange={(e) => setUsernameDraft(e.target.value)}
+            placeholder="Your Sleeper username"
+            style={inputStyle}
+          />
+          <button
+            className="fd-display"
+            onClick={() => onChangeSleeperUsername(usernameDraft.trim())}
+            style={{
+              padding: "0 18px",
+              fontSize: 13,
+              color: C.bg,
+              backgroundColor: C.gold,
+              border: "none",
+              cursor: "pointer",
+              flexShrink: 0,
+            }}
+          >
+            Save
+          </button>
         </div>
       </div>
 
@@ -1766,6 +1831,8 @@ function LiveScreen({ orderedLeagues, selectedWeek, isRealData }) {
 
   // Real data for the selected week is already correct as-is, no need to run
   // it through the mock past/future simulation. Only mock data gets that.
+  // (Status-vs-schedule syncing already happened once, at the root level,
+  // so both this screen and Help Me Root see the same corrected data.)
   const viewLeagues = React.useMemo(() => {
     if (isRealData) return orderedLeagues;
     return orderedLeagues.map((l) => ({
@@ -1917,10 +1984,11 @@ function AppHeader({ page, screen, setPage, onGoToScoreboard, onAddLeagues, seco
 
 // ---------- Root ----------
 
-// TEMPORARY: hardcoded username until the Add Leagues screen actually saves
-// your Sleeper username. Swap this for a real user-entered value once
-// that's built.
-const SLEEPER_USERNAME = "andrewzoss";
+const LS_KEYS = {
+  username: "leagueup_sleeper_username",
+  order: "leagueup_league_order",
+  removed: "leagueup_removed_ids",
+};
 
 export default function LeaguedUpApp() {
   const [page, setPage] = useState("scoreboard");
@@ -1928,19 +1996,61 @@ export default function LeaguedUpApp() {
   const [selectedWeek, setSelectedWeek] = useState(CURRENT_WEEK);
   const [secondsAgo, setSecondsAgo] = useState(0);
 
+  // Sleeper username, retry counter, and per-device saved order/removals.
+  // Start at safe defaults (matches server render), then load whatever was
+  // saved on this device once mounted in the browser, avoiding a hydration
+  // mismatch between server and client.
+  const [sleeperUsername, setSleeperUsernameState] = useState("");
+  const [retryCount, setRetryCount] = useState(0);
+  const [removedIds, setRemovedIds] = useState([]);
+  const [leagueOrder, setLeagueOrder] = useState(leagues.map((l) => l.id));
+
+  React.useEffect(() => {
+    try {
+      const savedUsername = localStorage.getItem(LS_KEYS.username);
+      const savedOrder = JSON.parse(localStorage.getItem(LS_KEYS.order) || "null");
+      const savedRemoved = JSON.parse(localStorage.getItem(LS_KEYS.removed) || "null");
+      if (savedUsername) setSleeperUsernameState(savedUsername);
+      if (savedOrder) setLeagueOrder(savedOrder);
+      if (savedRemoved) setRemovedIds(savedRemoved);
+    } catch {
+      // localStorage unavailable (private browsing, etc) - just start fresh
+    }
+  }, []);
+
+  function setSleeperUsername(name) {
+    setSleeperUsernameState(name);
+    try {
+      localStorage.setItem(LS_KEYS.username, name);
+    } catch {}
+  }
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(LS_KEYS.order, JSON.stringify(leagueOrder));
+    } catch {}
+  }, [leagueOrder]);
+  React.useEffect(() => {
+    try {
+      localStorage.setItem(LS_KEYS.removed, JSON.stringify(removedIds));
+    } catch {}
+  }, [removedIds]);
+
   // Real Sleeper data, fetched once here and shared by the Scoreboard, Help
   // Me Root, and the Add Leagues reorder list, so all three are always
   // looking at the same actual leagues instead of Scoreboard alone.
   const [realLeagues, setRealLeagues] = useState(null);
   const [loadError, setLoadError] = useState(null);
-  const [removedIds, setRemovedIds] = useState([]);
-  const [leagueOrder, setLeagueOrder] = useState(leagues.map((l) => l.id));
 
   React.useEffect(() => {
+    if (!sleeperUsername) {
+      setRealLeagues(null);
+      setLoadError(null);
+      return;
+    }
     let cancelled = false;
     setRealLeagues(null);
     setLoadError(null);
-    fetch(`/api/sleeper/all?username=${SLEEPER_USERNAME}&week=${selectedWeek}`)
+    fetch(`/api/sleeper/all?username=${sleeperUsername}&week=${selectedWeek}`)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -1953,7 +2063,7 @@ export default function LeaguedUpApp() {
     return () => {
       cancelled = true;
     };
-  }, [selectedWeek]);
+  }, [selectedWeek, sleeperUsername, retryCount]);
 
   // Real NFL schedule/live scores, shared by the Scoreboard's per-player
   // matchup line, the player modal, and Help Me Root's game/timeslot picker.
@@ -1983,7 +2093,10 @@ export default function LeaguedUpApp() {
     };
   }, [selectedWeek]);
 
-  const sourceLeagues = realLeagues || leagues; // real once loaded, mock fallback otherwise
+  // No silent mock fallback anymore - if there's no username or the fetch
+  // failed, that's a real "not connected" state, not a fake demo of leagues
+  // that aren't actually yours.
+  const sourceLeagues = realLeagues || [];
   const isRealData = !!realLeagues;
   const activeLeagues = sourceLeagues.filter((l) => !removedIds.includes(l.id));
   const activeIdsKey = activeLeagues.map((l) => l.id).join(",");
@@ -2004,6 +2117,20 @@ export default function LeaguedUpApp() {
   const orderedLeagues = leagueOrder
     .map((id) => activeLeagues.find((l) => l.id === id))
     .filter(Boolean);
+
+  // Corrects each player's pre/live/final status against the real schedule
+  // once it's loaded, so the Scoreboard and Help Me Root both work off the
+  // same corrected data instead of Sleeper's rough points>0 guess.
+  const syncedLeagues = React.useMemo(
+    () =>
+      orderedLeagues.map((l) => ({
+        ...l,
+        you: syncTeamStatusWithSchedule(l.you),
+        opp: syncTeamStatusWithSchedule(l.opp),
+      })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [orderedLeagues, scheduleVersion]
+  );
 
   React.useEffect(() => {
     const tick = setInterval(() => {
@@ -2032,13 +2159,56 @@ export default function LeaguedUpApp() {
         selectedWeek={selectedWeek}
         setSelectedWeek={setSelectedWeek}
       />
-      {loadError && (
-        <div className="fd-body" style={{ color: C.red, fontSize: 12, padding: 10 }}>
-          Couldn't load real Sleeper data ({loadError}), showing mock leagues instead.
+      {!sleeperUsername && (
+        <div style={{ padding: "30px 20px", textAlign: "center" }}>
+          <div className="fd-body" style={{ color: C.grey, fontSize: 13, marginBottom: 12 }}>
+            No leagues connected yet.
+          </div>
+          <button
+            className="fd-display"
+            onClick={() => {
+              setPage("scoreboard");
+              setScreen("setup");
+            }}
+            style={{
+              padding: "8px 18px",
+              fontSize: 13,
+              color: C.bg,
+              backgroundColor: C.gold,
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Add Leagues
+          </button>
         </div>
       )}
-      {!realLeagues && !loadError && (
-        <div className="fd-body" style={{ color: C.grey, fontSize: 12, padding: 10 }}>
+      {sleeperUsername && loadError && (
+        <div style={{ padding: "30px 20px", textAlign: "center" }}>
+          <div className="fd-display" style={{ color: C.red, fontSize: 16, marginBottom: 4 }}>
+            League Connection Error
+          </div>
+          <div className="fd-body" style={{ color: C.grey, fontSize: 11, marginBottom: 12 }}>
+            {loadError}
+          </div>
+          <button
+            className="fd-display"
+            onClick={() => setRetryCount((c) => c + 1)}
+            style={{
+              padding: "8px 18px",
+              fontSize: 13,
+              color: C.bg,
+              backgroundColor: C.red,
+              border: "none",
+              cursor: "pointer",
+            }}
+          >
+            Reconnect
+          </button>
+        </div>
+      )}
+      {sleeperUsername && !realLeagues && !loadError && (
+        <div className="fd-body" style={{ color: C.grey, fontSize: 12, padding: 10, textAlign: "center" }}>
           Loading your real Sleeper leagues...
         </div>
       )}
@@ -2048,7 +2218,7 @@ export default function LeaguedUpApp() {
         </div>
       )}
       {page === "root" ? (
-        <HelpMeRootScreen leaguesData={orderedLeagues} />
+        <HelpMeRootScreen leaguesData={syncedLeagues} />
       ) : screen === "setup" ? (
         <SetupScreen
           onGoLive={() => setScreen("live")}
@@ -2056,9 +2226,11 @@ export default function LeaguedUpApp() {
           onReorderLeagues={setLeagueOrder}
           leaguesData={activeLeagues}
           onRemoveLeague={(id) => setRemovedIds((prev) => [...prev, id])}
+          sleeperUsername={sleeperUsername}
+          onChangeSleeperUsername={setSleeperUsername}
         />
       ) : (
-        <LiveScreen orderedLeagues={orderedLeagues} selectedWeek={selectedWeek} isRealData={isRealData} />
+        <LiveScreen orderedLeagues={syncedLeagues} selectedWeek={selectedWeek} isRealData={isRealData} />
       )}
     </div>
   );
