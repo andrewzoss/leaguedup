@@ -1684,6 +1684,7 @@ function SetupScreen({
   espnLeagueIds,
   onAddEspnLeagueId,
   onRemoveEspnLeagueId,
+  selectedWeek,
 }) {
   const [usernameDraft, setUsernameDraft] = useState(sleeperUsername || "");
   const [espnLeagueIdDraft, setEspnLeagueIdDraft] = useState("");
@@ -1871,6 +1872,17 @@ function SetupScreen({
                       <span className="fd-body" style={{ fontSize: 12, color: C.white, flex: 1 }}>
                         League {id}
                       </span>
+                      <a
+                        href={`/api/espn/league?league_id=${id}&espn_s2=${encodeURIComponent(
+                          espnCookies.s2
+                        )}&swid=${encodeURIComponent(espnCookies.swid)}&week=${selectedWeek}&year=2026`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="fd-body"
+                        style={{ fontSize: 10, color: C.gold, textDecoration: "underline" }}
+                      >
+                        View raw data
+                      </a>
                       <button
                         onClick={() => onRemoveEspnLeagueId(id)}
                         style={{ background: "none", border: "none", color: C.grey, cursor: "pointer" }}
@@ -2535,6 +2547,7 @@ export default function LeaguedUpApp() {
           espnLeagueIds={espnLeagueIds}
           onAddEspnLeagueId={addEspnLeagueId}
           onRemoveEspnLeagueId={removeEspnLeagueId}
+          selectedWeek={selectedWeek}
         />
       ) : (
         <LiveScreen orderedLeagues={syncedLeagues} selectedWeek={selectedWeek} isRealData={isRealData} />
