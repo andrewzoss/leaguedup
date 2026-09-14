@@ -64,8 +64,10 @@ const styles = `
   flex: 0 0 calc(50% - 1px);
   scroll-snap-align: start;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto auto auto;
   min-width: 0;
+  width: 100%;
 }
 @media (min-width: 640px) {
   .fd-league-col-wrap { flex-basis: calc(50% - 4px); }
@@ -172,7 +174,7 @@ const styles = `
 /* ---- starter rows ---- */
 .fd-row {
   display: grid;
-  grid-template-columns: 12px 1fr 30px;
+  grid-template-columns: 12px 1fr 48px;
   align-items: center;
   column-gap: 2px;
   padding: 1.5px 0;
@@ -194,10 +196,10 @@ const styles = `
 @media (min-width: 640px) { .fd-row-game { font-size: 9px; padding-left: 19px; } }
 @media (min-width: 1024px) { .fd-row-game { font-size: 10px; padding-left: 25px; } }
 @media (min-width: 640px) {
-  .fd-row { grid-template-columns: 18px 1fr 46px; column-gap: 6px; padding: 3.5px 0; }
+  .fd-row { grid-template-columns: 18px 1fr 66px; column-gap: 6px; padding: 3.5px 0; }
 }
 @media (min-width: 1024px) {
-  .fd-row { grid-template-columns: 24px 1fr 54px; column-gap: 8px; padding: 5px 0; }
+  .fd-row { grid-template-columns: 24px 1fr 76px; column-gap: 8px; padding: 5px 0; }
 }
 
 .fd-pos {
@@ -227,8 +229,8 @@ const styles = `
 @media (min-width: 640px) { .fd-pts { font-size: 11px; } }
 @media (min-width: 1024px) { .fd-pts { font-size: 13px; } }
 
-.fd-pts-wrap { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
-.fd-proj-mini { font-size: 5.5px; color: #6B6B6F; font-weight: 500; margin-top: 1px; }
+.fd-pts-wrap { display: flex; flex-direction: row; align-items: baseline; justify-content: flex-end; gap: 3px; line-height: 1; }
+.fd-proj-mini { font-size: 5.5px; color: #6B6B6F; font-weight: 500; }
 @media (min-width: 640px) { .fd-proj-mini { font-size: 8px; } }
 @media (min-width: 1024px) { .fd-proj-mini { font-size: 9px; } }
 
@@ -790,7 +792,7 @@ function StarterRow({ p, onSelect, showGame }) {
       <span className="fd-name fd-body">{p.name}</span>
       <span className="fd-pts-wrap">
         <span className={`fd-pts fd-body ${ptsClass}`}>{p.pts.toFixed(1)}</span>
-        <span className="fd-proj-mini fd-body">{p.proj.toFixed(1)} proj</span>
+        <span className="fd-proj-mini fd-body">({p.proj.toFixed(1)})</span>
       </span>
       {showGame && <span className="fd-row-game fd-body">{gameLine(p)}</span>}
     </div>
@@ -1508,7 +1510,8 @@ function SetupScreen({
           REORDER
         </div>
         <p className="fd-body" style={{ fontSize: 12, color: C.grey, margin: "0 0 10px" }}>
-          Drag to set the order your leagues appear on the Scoreboard.
+          Drag to set the order your leagues appear on the Scoreboard. Tap a
+          league's name to rename it.
         </p>
         <ReorderList
           order={leagueOrder}
@@ -1787,10 +1790,18 @@ function LiveScreen({ orderedLeagues, selectedWeek }) {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const isCurrentWeek = selectedWeek === CURRENT_WEEK;
   const viewLeagues = orderedLeagues;
+  const boardRef = React.useRef(null);
+
+  // Always start scrolled all the way to the first league - without this,
+  // the horizontal scroll container can render already scrolled into the
+  // middle of the list on load.
+  React.useEffect(() => {
+    if (boardRef.current) boardRef.current.scrollLeft = 0;
+  }, [viewLeagues.length]);
 
   return (
     <div>
-      <div className="fd-board">
+      <div className="fd-board" ref={boardRef}>
         {viewLeagues.map((l, i) => (
           <LeagueColumn
             key={l.id}
