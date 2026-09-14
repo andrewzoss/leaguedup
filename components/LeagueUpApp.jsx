@@ -41,10 +41,10 @@ const styles = `
    across ALL leagues independently of the opponent card's own height. That's
    what makes every opponent card start at the same row, with zero JS. ---- */
 .fd-board {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  grid-template-rows: auto auto auto auto;
-  align-items: start;
+  display: flex;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scroll-snap-type: x proximity;
   gap: 2px;
   padding: 4px;
 }
@@ -53,6 +53,25 @@ const styles = `
 }
 @media (min-width: 1024px) {
   .fd-board { gap: 14px; padding: 18px; max-width: 1280px; margin: 0 auto; }
+}
+
+/* Each league is its own fixed-width slice - 2 fit on screen at once, and
+   scrolling between pairs is a normal fluid touch-scroll, not a hard page
+   flip. Own internal 4-row grid (header/you/vs/opp) so a league's own rows
+   line up regardless of roster size, independent of its neighbors now that
+   leagues scroll past each other instead of all sitting in one shared grid. */
+.fd-league-col-wrap {
+  flex: 0 0 calc(50% - 1px);
+  scroll-snap-align: start;
+  display: grid;
+  grid-template-rows: auto auto auto auto;
+  min-width: 0;
+}
+@media (min-width: 640px) {
+  .fd-league-col-wrap { flex-basis: calc(50% - 4px); }
+}
+@media (min-width: 1024px) {
+  .fd-league-col-wrap { flex-basis: calc(50% - 7px); }
 }
 
 /* purely decorative: spans all 4 rows of its column to draw the "one rectangle
@@ -153,7 +172,7 @@ const styles = `
 /* ---- starter rows ---- */
 .fd-row {
   display: grid;
-  grid-template-columns: 12px 1fr 22px;
+  grid-template-columns: 12px 1fr 30px;
   align-items: center;
   column-gap: 2px;
   padding: 1.5px 0;
@@ -175,10 +194,10 @@ const styles = `
 @media (min-width: 640px) { .fd-row-game { font-size: 9px; padding-left: 19px; } }
 @media (min-width: 1024px) { .fd-row-game { font-size: 10px; padding-left: 25px; } }
 @media (min-width: 640px) {
-  .fd-row { grid-template-columns: 18px 1fr 34px; column-gap: 6px; padding: 3.5px 0; }
+  .fd-row { grid-template-columns: 18px 1fr 46px; column-gap: 6px; padding: 3.5px 0; }
 }
 @media (min-width: 1024px) {
-  .fd-row { grid-template-columns: 24px 1fr 40px; column-gap: 8px; padding: 5px 0; }
+  .fd-row { grid-template-columns: 24px 1fr 54px; column-gap: 8px; padding: 5px 0; }
 }
 
 .fd-pos {
@@ -207,6 +226,11 @@ const styles = `
 }
 @media (min-width: 640px) { .fd-pts { font-size: 11px; } }
 @media (min-width: 1024px) { .fd-pts { font-size: 13px; } }
+
+.fd-pts-wrap { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.15; }
+.fd-proj-mini { font-size: 5.5px; color: #6B6B6F; font-weight: 500; margin-top: 1px; }
+@media (min-width: 640px) { .fd-proj-mini { font-size: 8px; } }
+@media (min-width: 1024px) { .fd-proj-mini { font-size: 9px; } }
 
 /* green = outperforming projection, red = underperforming, grey = hasn't played yet */
 .fd-pts-over { color: #39D98A; }
@@ -661,10 +685,36 @@ function getPlayerTeam(p) {
   return p.team || null;
 }
 
+// Estimates what fraction of a 60-minute NFL game has elapsed, from the
+// real quarter + clock. Used to judge whether a player is "on pace" for
+// their projection rather than just comparing raw current points to the
+// full-game projection (which unfairly reads as "under" for anyone whose
+// game just started).
+function getGameFraction(p) {
+  if (p.status === "pre") return 0;
+  if (p.status === "final") return 1;
+  const g = mockGame(p);
+  if (!g.game.isReal || !g.quarter) return null; // unknown - schedule not loaded, can't judge pace
+  const [clockMin, clockSec] = (g.clock || "15:00").split(":").map((n) => Number(n) || 0);
+  const minutesLeftInQuarter = clockMin + clockSec / 60;
+  const elapsedInQuarter = Math.max(0, 15 - minutesLeftInQuarter);
+  const elapsedMinutes = (g.quarter - 1) * 15 + elapsedInQuarter;
+  return Math.min(1, Math.max(0, elapsedMinutes / 60));
+}
+
+// Pace-adjusted target: "at this point in the game, a player on track to
+// hit their projection would have this many points." Early in a game this
+// is intentionally not held to the full projection - a WR with 0 points
+// two minutes in isn't "underperforming," they just haven't touched the
+// ball yet. A small floor avoids that early-game noise; a small tolerance
+// band avoids color flickering right at the boundary.
 function getPtsClass(p) {
   if (p.status === "pre") return "fd-pts-pre";
-  if (p.pts > p.proj) return "fd-pts-over";
-  if (p.pts < p.proj) return "fd-pts-under";
+  const fraction = getGameFraction(p);
+  if (fraction === null) return "fd-pts-even"; // schedule unknown yet - no fair basis for a call
+  const paceTarget = p.proj * Math.max(fraction, 0.15);
+  if (p.pts > paceTarget * 1.1) return "fd-pts-over";
+  if (p.pts < paceTarget * 0.9) return "fd-pts-under";
   return "fd-pts-even";
 }
 
@@ -738,7 +788,10 @@ function StarterRow({ p, onSelect, showGame }) {
     <div className={`fd-row ${showGame ? "fd-row-tall" : ""}`} onClick={() => onSelect(p)}>
       <span className="fd-pos fd-body">{p.pos}</span>
       <span className="fd-name fd-body">{p.name}</span>
-      <span className={`fd-pts fd-body ${ptsClass}`}>{p.pts.toFixed(1)}</span>
+      <span className="fd-pts-wrap">
+        <span className={`fd-pts fd-body ${ptsClass}`}>{p.pts.toFixed(1)}</span>
+        <span className="fd-proj-mini fd-body">{p.proj.toFixed(1)} proj</span>
+      </span>
       {showGame && <span className="fd-row-game fd-body">{gameLine(p)}</span>}
     </div>
   );
@@ -748,13 +801,13 @@ function computeProjectedTotal(team) {
   return team.starters.reduce((sum, p) => sum + p.proj, 0);
 }
 
-function TeamCard({ team, isYou, isWinning, isProjWinning, onSelectPlayer, gridColumn, gridRow, showProjected }) {
+function TeamCard({ team, isYou, isWinning, isProjWinning, onSelectPlayer, gridRow, showProjected }) {
   const [benchOpen, setBenchOpen] = useState(false);
   const projectedTotal = computeProjectedTotal(team);
   return (
     <div
       className={`fd-card ${isYou ? "fd-card-you" : ""}`}
-      style={{ backgroundColor: isYou ? C.panelAlt : C.panel, gridColumn, gridRow }}
+      style={{ backgroundColor: isYou ? C.panelAlt : C.panel, gridRow }}
     >
       <div className="fd-team-name fd-display">{team.team}</div>
       <div className="fd-score-row">
@@ -806,18 +859,17 @@ function TeamCard({ team, isYou, isWinning, isProjWinning, onSelectPlayer, gridC
 // Because the rows are shared across all 4 leagues, row 2 (you-card) auto-sizes
 // to the tallest one, and row 3/4 (vs, opponent) then start at the same Y for
 // every league automatically - no JS, no manual spacer.
-function LeagueColumn({ league, onSelectPlayer, colIndex, showProjected }) {
+function LeagueColumn({ league, onSelectPlayer, showProjected }) {
   const youWinning = league.you.total > league.opp.total;
   const oppWinning = league.opp.total > league.you.total;
   const youProj = computeProjectedTotal(league.you);
   const oppProj = computeProjectedTotal(league.opp);
   const youProjWinning = youProj > oppProj;
   const oppProjWinning = oppProj > youProj;
-  const col = colIndex + 1;
   return (
-    <React.Fragment>
-      <div className="fd-league-box" style={{ gridColumn: col, gridRow: "1 / span 4" }} />
-      <div className="fd-col-head" style={{ gridColumn: col, gridRow: 1 }}>
+    <div className="fd-league-col-wrap">
+      <div className="fd-league-box" style={{ gridRow: "1 / span 4" }} />
+      <div className="fd-col-head" style={{ gridRow: 1 }}>
         <span
           className="fd-plat-tag"
           style={{ backgroundColor: PLATFORM_COLORS[league.platform] }}
@@ -832,11 +884,10 @@ function LeagueColumn({ league, onSelectPlayer, colIndex, showProjected }) {
         isWinning={youWinning}
         isProjWinning={youProjWinning}
         onSelectPlayer={onSelectPlayer}
-        gridColumn={col}
         gridRow={2}
         showProjected={showProjected}
       />
-      <div className="fd-vs" style={{ gridColumn: col, gridRow: 3 }}>
+      <div className="fd-vs" style={{ gridRow: 3 }}>
         <div className="fd-vs-line" />
         <span className="fd-vs-label fd-display">VS</span>
         <div className="fd-vs-line" />
@@ -847,11 +898,10 @@ function LeagueColumn({ league, onSelectPlayer, colIndex, showProjected }) {
         isWinning={oppWinning}
         isProjWinning={oppProjWinning}
         onSelectPlayer={onSelectPlayer}
-        gridColumn={col}
         gridRow={4}
         showProjected={showProjected}
       />
-    </React.Fragment>
+    </div>
   );
 }
 
@@ -1203,19 +1253,69 @@ function HelpMeRootScreen({ leaguesData }) {
 
 const REORDER_ROW_H = 40;
 
-function ReorderRow({ league, index, dragState, onPointerDown, onRemove }) {
+function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRename }) {
   const isDragging = dragState.id === league.id;
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(league.name);
+
+  function commitRename() {
+    onRename(league.id, draft);
+    setEditing(false);
+  }
+
   return (
     <div
       className={`fd-reorder-row ${isDragging ? "dragging" : ""}`}
       style={isDragging ? { transform: `translateY(${dragState.dy}px)` } : undefined}
-      onPointerDown={(e) => onPointerDown(e, league.id, index)}
+      onPointerDown={(e) => {
+        if (editing) return; // don't start a drag while the name field is open
+        onPointerDown(e, league.id, index);
+      }}
     >
       <GripVertical size={14} color={C.grey} style={{ flexShrink: 0 }} />
       <span className="fd-plat-tag" style={{ backgroundColor: PLATFORM_COLORS[league.platform] }}>
         {PLATFORM_LABEL[league.platform]}
       </span>
-      <span className="fd-reorder-name fd-body">{league.name}</span>
+      {editing ? (
+        <input
+          autoFocus
+          className="fd-body"
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => e.stopPropagation()}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commitRename();
+            if (e.key === "Escape") {
+              setDraft(league.name);
+              setEditing(false);
+            }
+          }}
+          onBlur={commitRename}
+          style={{
+            flex: 1,
+            minWidth: 0,
+            background: C.bg,
+            border: `1px solid ${C.gold}`,
+            color: C.white,
+            fontSize: 12,
+            padding: "3px 6px",
+          }}
+        />
+      ) : (
+        <span
+          className="fd-reorder-name fd-body"
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            setDraft(league.name);
+            setEditing(true);
+          }}
+          style={{ cursor: "text" }}
+        >
+          {league.name}
+        </span>
+      )}
       <button
         className="fd-reorder-remove"
         onClick={(e) => {
@@ -1231,7 +1331,7 @@ function ReorderRow({ league, index, dragState, onPointerDown, onRemove }) {
   );
 }
 
-function ReorderList({ order, leaguesData, onReorder, onRemove }) {
+function ReorderList({ order, leaguesData, onReorder, onRemove, onRename }) {
   const [dragState, setDragState] = useState({ id: null, startIndex: 0, dy: 0, startY: 0 });
   const items = order.map((id) => leaguesData.find((l) => l.id === id)).filter(Boolean);
 
@@ -1278,6 +1378,7 @@ function ReorderList({ order, leaguesData, onReorder, onRemove }) {
           dragState={dragState}
           onPointerDown={handlePointerDown}
           onRemove={onRemove}
+          onRename={onRename}
         />
       ))}
     </div>
@@ -1349,6 +1450,7 @@ function SetupScreen({
   onReorderLeagues,
   leaguesData,
   onRemoveLeague,
+  onRenameLeague,
   sleeperUsername,
   onChangeSleeperUsername,
   espnCookies,
@@ -1413,6 +1515,7 @@ function SetupScreen({
           leaguesData={leaguesData}
           onReorder={onReorderLeagues}
           onRemove={onRemoveLeague}
+          onRename={onRenameLeague}
         />
       </div>
 
@@ -1687,21 +1790,12 @@ function LiveScreen({ orderedLeagues, selectedWeek }) {
 
   return (
     <div>
-      <div
-        className="fd-board"
-        style={{
-          gridTemplateColumns: `repeat(${viewLeagues.length}, minmax(0, 1fr))`,
-          // Always stretch to fill the full page width, regardless of how
-          // many leagues there are. Font sizes are driven by viewport
-          // breakpoints, not column width, so they stay the same either way.
-        }}
-      >
+      <div className="fd-board">
         {viewLeagues.map((l, i) => (
           <LeagueColumn
             key={l.id}
             league={l}
             onSelectPlayer={setSelectedPlayer}
-            colIndex={i}
             showProjected={isCurrentWeek}
           />
         ))}
@@ -1834,6 +1928,7 @@ const LS_KEYS = {
   espnS2: "leagueup_espn_s2",
   espnSwid: "leagueup_espn_swid",
   espnLeagueIds: "leagueup_espn_league_ids",
+  nameOverrides: "leagueup_league_name_overrides",
 };
 
 export default function LeaguedUpApp() {
@@ -1852,6 +1947,7 @@ export default function LeaguedUpApp() {
   const [retryCount, setRetryCount] = useState(0);
   const [removedIds, setRemovedIds] = useState([]);
   const [leagueOrder, setLeagueOrder] = useState(leagues.map((l) => l.id));
+  const [leagueNameOverrides, setLeagueNameOverrides] = useState({}); // league id -> custom display name
 
   // Picks up cookies handed off by the ESPN bookmarklet (see the bookmarklet
   // setup instructions), which lands back here as a URL fragment like
@@ -1883,9 +1979,11 @@ export default function LeaguedUpApp() {
       const savedEspnS2 = localStorage.getItem(LS_KEYS.espnS2);
       const savedEspnSwid = localStorage.getItem(LS_KEYS.espnSwid);
       const savedEspnLeagueIds = JSON.parse(localStorage.getItem(LS_KEYS.espnLeagueIds) || "null");
+      const savedNameOverrides = JSON.parse(localStorage.getItem(LS_KEYS.nameOverrides) || "null");
       if (savedUsername) setSleeperUsernameState(savedUsername);
       if (savedEspnS2 && savedEspnSwid) setEspnCookiesState({ s2: savedEspnS2, swid: savedEspnSwid });
       if (savedEspnLeagueIds) setEspnLeagueIdsState(savedEspnLeagueIds);
+      if (savedNameOverrides) setLeagueNameOverrides(savedNameOverrides);
       if (!savedUsername && !(savedEspnS2 && savedEspnSwid)) {
         setScreen("setup"); // no leagues connected yet - start on Add Leagues, not an empty Scoreboard
       }
@@ -1895,6 +1993,19 @@ export default function LeaguedUpApp() {
       setScreen("setup"); // localStorage unavailable - safest to just let them add leagues
     }
   }, []);
+
+  function renameLeague(id, newName) {
+    setLeagueNameOverrides((prev) => {
+      const next = { ...prev };
+      const trimmed = newName.trim();
+      if (trimmed) next[id] = trimmed;
+      else delete next[id]; // empty name = revert to the platform's real name
+      try {
+        localStorage.setItem(LS_KEYS.nameOverrides, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
 
   function setSleeperUsername(name) {
     setSleeperUsernameState(name);
@@ -2043,7 +2154,12 @@ export default function LeaguedUpApp() {
   // Sleeper + ESPN combined. No silent mock fallback anymore - leagues that
   // haven't loaded or failed just aren't in this list, that's a real
   // "not connected" state, not a fake demo of leagues that aren't yours.
-  const allRealLeagues = [...(sleeperLeagues || []), ...espnLeagues];
+  // Name overrides applied right here, at the source, so every screen that
+  // reads league.name (Scoreboard, Help Me Root, the reorder list) sees the
+  // renamed value automatically.
+  const allRealLeagues = [...(sleeperLeagues || []), ...espnLeagues].map((l) =>
+    leagueNameOverrides[l.id] ? { ...l, name: leagueNameOverrides[l.id] } : l
+  );
   const activeLeagues = allRealLeagues.filter((l) => !removedIds.includes(l.id));
   const activeIdsKey = activeLeagues.map((l) => l.id).join(",");
 
@@ -2199,6 +2315,7 @@ export default function LeaguedUpApp() {
           onReorderLeagues={setLeagueOrder}
           leaguesData={activeLeagues}
           onRemoveLeague={(id) => setRemovedIds((prev) => [...prev, id])}
+          onRenameLeague={renameLeague}
           sleeperUsername={sleeperUsername}
           onChangeSleeperUsername={setSleeperUsername}
           espnCookies={espnCookies}
