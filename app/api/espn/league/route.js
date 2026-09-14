@@ -125,11 +125,12 @@ function buildTeam(team, week) {
       boxScore: realBoxScore(realPos, rawStats),
     };
     if (row.pos === "FLX") row.realPos = realPos;
-    // TEMPORARY diagnostic: K/DST stat IDs aren't mapped yet (see the note
-    // above STAT_IDS) - this surfaces ESPN's raw numeric stat object so we
-    // can read the real IDs off an actual kicker/defense and map them
-    // precisely instead of guessing. Remove once K/DST are mapped for real.
-    if ((realPos === "K" || realPos === "DST") && rawStats) {
+    // TEMPORARY diagnostic: at least one confirmed-wrong stat ID (RB rushing
+    // showed 0 for a player who clearly rushed for real yards), so this now
+    // surfaces the raw numeric stat object for every position, not just K/
+    // DST, until the whole table is verified against real data. Remove once
+    // confirmed correct across QB/RB/WR/TE/K/DST.
+    if (rawStats) {
       row.debugRawStats = rawStats;
     }
     if (slotLabel) starters.push(row);
