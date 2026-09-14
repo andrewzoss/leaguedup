@@ -49,7 +49,7 @@ async function getPlayersMap() {
 // top of this file. Cached per season+week since it doesn't change once a
 // week is final, and only slowly while a week is live.
 const STATS_CACHE = new Map(); // key `${season}-${week}` -> { data, fetchedAt }
-const STATS_CACHE_TTL_MS = 1000 * 60 * 2; // 2 minutes, short since it's live during games
+const STATS_CACHE_TTL_MS = 1000 * 20; // 20 seconds - short since box scores change live during games
 
 async function getWeekStats(season, week) {
   const key = `${season}-${week}`;
