@@ -41,8 +41,10 @@ const styles = `
    across ALL leagues independently of the opponent card's own height. That's
    what makes every opponent card start at the same row, with zero JS. ---- */
 .fd-board {
-  display: flex;
-  align-items: flex-start;
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: auto auto auto auto;
+  align-items: start;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scroll-snap-type: x proximity;
@@ -56,21 +58,16 @@ const styles = `
   .fd-board { gap: 14px; padding: 18px; max-width: 1280px; margin: 0 auto; }
 }
 
-/* Each league is its own slice. Width is set as an explicit inline pixel
-   value from JS (measured against the board's real rendered width), not
-   CSS percentage/calc math - that was proving unreliable across attempts,
-   an explicit measured pixel width is unambiguous. Own internal 4-row grid
-   (header/you/vs/opp) so a league's own rows line up regardless of roster
-   size, independent of its neighbors now that leagues scroll past each
-   other instead of all sitting in one shared grid. */
-.fd-league-col-wrap {
-  flex-shrink: 0;
-  scroll-snap-align: start;
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  grid-template-rows: auto auto auto auto;
-  align-content: start;
-  min-width: 0;
+/* Points column width scales with how many leagues are on screen - fixed
+   pixel widths were eating a much bigger share of a much narrower row at
+   3-4 per screen, squeezing names down even when there was visible slack. */
+.fd-board[data-perpage="2"] .fd-row { grid-template-columns: 12px 1fr 48px; }
+.fd-board[data-perpage="3"] .fd-row { grid-template-columns: 10px 1fr 38px; }
+.fd-board[data-perpage="4"] .fd-row { grid-template-columns: 9px 1fr 32px; }
+@media (min-width: 640px) {
+  .fd-board[data-perpage="2"] .fd-row { grid-template-columns: 18px 1fr 66px; }
+  .fd-board[data-perpage="3"] .fd-row { grid-template-columns: 16px 1fr 56px; }
+  .fd-board[data-perpage="4"] .fd-row { grid-template-columns: 14px 1fr 48px; }
 }
 
 /* purely decorative: spans all 4 rows of its column to draw the "one rectangle
@@ -194,9 +191,6 @@ const styles = `
 @media (min-width: 1024px) { .fd-row-game { font-size: 10px; padding-left: 25px; } }
 @media (min-width: 640px) {
   .fd-row { grid-template-columns: 18px 1fr 66px; column-gap: 6px; padding: 3.5px 0; }
-}
-@media (min-width: 1024px) {
-  .fd-row { grid-template-columns: 24px 1fr 76px; column-gap: 8px; padding: 5px 0; }
 }
 
 .fd-pos {
@@ -799,13 +793,13 @@ function computeProjectedTotal(team) {
   return team.starters.reduce((sum, p) => sum + p.proj, 0);
 }
 
-function TeamCard({ team, isYou, isWinning, isProjWinning, onSelectPlayer, gridRow, showProjected }) {
+function TeamCard({ team, isYou, isWinning, isProjWinning, onSelectPlayer, gridColumn, gridRow, showProjected }) {
   const [benchOpen, setBenchOpen] = useState(false);
   const projectedTotal = computeProjectedTotal(team);
   return (
     <div
       className={`fd-card ${isYou ? "fd-card-you" : ""}`}
-      style={{ backgroundColor: isYou ? C.panelAlt : C.panel, gridRow }}
+      style={{ backgroundColor: isYou ? C.panelAlt : C.panel, gridColumn, gridRow }}
     >
       <div className="fd-team-name fd-display">{team.team}</div>
       <div className="fd-score-row">
@@ -857,17 +851,18 @@ function TeamCard({ team, isYou, isWinning, isProjWinning, onSelectPlayer, gridR
 // Because the rows are shared across all 4 leagues, row 2 (you-card) auto-sizes
 // to the tallest one, and row 3/4 (vs, opponent) then start at the same Y for
 // every league automatically - no JS, no manual spacer.
-function LeagueColumn({ league, onSelectPlayer, showProjected, widthPx }) {
+function LeagueColumn({ league, onSelectPlayer, showProjected, colIndex }) {
   const youWinning = league.you.total > league.opp.total;
   const oppWinning = league.opp.total > league.you.total;
   const youProj = computeProjectedTotal(league.you);
   const oppProj = computeProjectedTotal(league.opp);
   const youProjWinning = youProj > oppProj;
   const oppProjWinning = oppProj > youProj;
+  const col = colIndex + 1;
   return (
-    <div className="fd-league-col-wrap" style={widthPx ? { width: widthPx } : undefined}>
-      <div className="fd-league-box" style={{ gridRow: "1 / span 4" }} />
-      <div className="fd-col-head" style={{ gridRow: 1 }}>
+    <React.Fragment>
+      <div className="fd-league-box" style={{ gridColumn: col, gridRow: "1 / span 4" }} />
+      <div className="fd-col-head" style={{ gridColumn: col, gridRow: 1 }}>
         <span
           className="fd-plat-tag"
           style={{ backgroundColor: PLATFORM_COLORS[league.platform] }}
@@ -882,10 +877,11 @@ function LeagueColumn({ league, onSelectPlayer, showProjected, widthPx }) {
         isWinning={youWinning}
         isProjWinning={youProjWinning}
         onSelectPlayer={onSelectPlayer}
+        gridColumn={col}
         gridRow={2}
         showProjected={showProjected}
       />
-      <div className="fd-vs" style={{ gridRow: 3 }}>
+      <div className="fd-vs" style={{ gridColumn: col, gridRow: 3 }}>
         <div className="fd-vs-line" />
         <span className="fd-vs-label fd-display">VS</span>
         <div className="fd-vs-line" />
@@ -896,10 +892,11 @@ function LeagueColumn({ league, onSelectPlayer, showProjected, widthPx }) {
         isWinning={oppWinning}
         isProjWinning={oppProjWinning}
         onSelectPlayer={onSelectPlayer}
+        gridColumn={col}
         gridRow={4}
         showProjected={showProjected}
       />
-    </div>
+    </React.Fragment>
   );
 }
 
@@ -1816,14 +1813,23 @@ function LiveScreen({ orderedLeagues, selectedWeek, leaguesPerPage }) {
 
   return (
     <div>
-      <div className="fd-board" ref={boardRef}>
+      <div
+        className="fd-board"
+        ref={boardRef}
+        data-perpage={leaguesPerPage}
+        style={{
+          gridTemplateColumns: colWidthPx
+            ? `repeat(${viewLeagues.length}, ${colWidthPx}px)`
+            : `repeat(${viewLeagues.length}, minmax(0, 1fr))`,
+        }}
+      >
         {viewLeagues.map((l, i) => (
           <LeagueColumn
             key={l.id}
             league={l}
             onSelectPlayer={setSelectedPlayer}
             showProjected={isCurrentWeek}
-            widthPx={colWidthPx}
+            colIndex={i}
           />
         ))}
       </div>
