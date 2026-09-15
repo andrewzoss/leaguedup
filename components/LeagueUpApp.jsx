@@ -41,33 +41,35 @@ const styles = `
    across ALL leagues independently of the opponent card's own height. That's
    what makes every opponent card start at the same row, with zero JS. ---- */
 .fd-board {
-  --board-gap: 2px;
-  --per-page: 2;
-  display: grid;
-  grid-auto-flow: column;
-  grid-auto-columns: calc((100% - (var(--per-page) - 1) * var(--board-gap)) / var(--per-page));
-  column-gap: var(--board-gap);
+  display: flex;
+  align-items: flex-start;
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scroll-snap-type: x proximity;
+  gap: 2px;
   padding: 4px;
 }
 @media (min-width: 640px) {
-  .fd-board { --board-gap: 8px; padding: 14px; }
+  .fd-board { gap: 8px; padding: 14px; }
 }
 @media (min-width: 1024px) {
-  .fd-board { --board-gap: 14px; padding: 18px; max-width: 1280px; margin: 0 auto; }
+  .fd-board { gap: 14px; padding: 18px; max-width: 1280px; margin: 0 auto; }
 }
 
-/* Each league is its own slice, sized by the parent's grid-auto-columns
-   above (so the per-page picker controls this from one place). Own internal
-   4-row grid (header/you/vs/opp) so a league's own rows line up regardless
-   of roster size, independent of its neighbors now that leagues scroll past
-   each other instead of all sitting in one shared grid. */
+/* Each league is its own slice. Width is set as an explicit inline pixel
+   value from JS (measured against the board's real rendered width), not
+   CSS percentage/calc math - that was proving unreliable across attempts,
+   an explicit measured pixel width is unambiguous. Own internal 4-row grid
+   (header/you/vs/opp) so a league's own rows line up regardless of roster
+   size, independent of its neighbors now that leagues scroll past each
+   other instead of all sitting in one shared grid. */
 .fd-league-col-wrap {
+  flex-shrink: 0;
   scroll-snap-align: start;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto auto auto;
+  align-content: start;
   min-width: 0;
 }
 
@@ -209,7 +211,6 @@ const styles = `
   font-size: 7.5px;
   color: #F5F3EC;
   overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
 }
@@ -856,7 +857,7 @@ function TeamCard({ team, isYou, isWinning, isProjWinning, onSelectPlayer, gridR
 // Because the rows are shared across all 4 leagues, row 2 (you-card) auto-sizes
 // to the tallest one, and row 3/4 (vs, opponent) then start at the same Y for
 // every league automatically - no JS, no manual spacer.
-function LeagueColumn({ league, onSelectPlayer, showProjected }) {
+function LeagueColumn({ league, onSelectPlayer, showProjected, widthPx }) {
   const youWinning = league.you.total > league.opp.total;
   const oppWinning = league.opp.total > league.you.total;
   const youProj = computeProjectedTotal(league.you);
@@ -864,7 +865,7 @@ function LeagueColumn({ league, onSelectPlayer, showProjected }) {
   const youProjWinning = youProj > oppProj;
   const oppProjWinning = oppProj > youProj;
   return (
-    <div className="fd-league-col-wrap">
+    <div className="fd-league-col-wrap" style={widthPx ? { width: widthPx } : undefined}>
       <div className="fd-league-box" style={{ gridRow: "1 / span 4" }} />
       <div className="fd-col-head" style={{ gridRow: 1 }}>
         <span
@@ -1781,11 +1782,30 @@ function SetupScreen({
 
 // ---------- Live dashboard screen ----------
 
-function LiveScreen({ orderedLeagues, selectedWeek, leaguesPerPage, onChangeLeaguesPerPage }) {
+function LiveScreen({ orderedLeagues, selectedWeek, leaguesPerPage }) {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const isCurrentWeek = selectedWeek === CURRENT_WEEK;
   const viewLeagues = orderedLeagues;
   const boardRef = React.useRef(null);
+  const [colWidthPx, setColWidthPx] = useState(null);
+
+  // Measures the board's actual rendered width and divides it directly into
+  // pixel widths - explicit numbers from the real DOM, not CSS percentage/
+  // calc math (which repeatedly proved unreliable here). Re-measures on
+  // resize and whenever the per-page count changes.
+  React.useEffect(() => {
+    function measure() {
+      if (!boardRef.current) return;
+      const totalWidth = boardRef.current.clientWidth;
+      const style = window.getComputedStyle(boardRef.current);
+      const gap = parseFloat(style.columnGap || style.gap || "0") || 0;
+      const width = (totalWidth - gap * (leaguesPerPage - 1)) / leaguesPerPage;
+      setColWidthPx(Math.floor(width));
+    }
+    measure();
+    window.addEventListener("resize", measure);
+    return () => window.removeEventListener("resize", measure);
+  }, [leaguesPerPage]);
 
   // Always start scrolled all the way to the first league - without this,
   // the horizontal scroll container can render already scrolled into the
@@ -1796,39 +1816,14 @@ function LiveScreen({ orderedLeagues, selectedWeek, leaguesPerPage, onChangeLeag
 
   return (
     <div>
-      {viewLeagues.length > 1 && (
-        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, padding: "6px 8px 0" }}>
-          <span className="fd-body" style={{ fontSize: 10, color: C.grey }}>
-            PER SCREEN
-          </span>
-          {[2, 3, 4].map((n) => (
-            <button
-              key={n}
-              onClick={() => onChangeLeaguesPerPage(n)}
-              className="fd-body"
-              style={{
-                width: 22,
-                height: 22,
-                fontSize: 11,
-                fontWeight: 700,
-                color: leaguesPerPage === n ? C.bg : C.grey,
-                backgroundColor: leaguesPerPage === n ? C.gold : "transparent",
-                border: `1px solid ${leaguesPerPage === n ? C.gold : C.line}`,
-                cursor: "pointer",
-              }}
-            >
-              {n}
-            </button>
-          ))}
-        </div>
-      )}
-      <div className="fd-board" style={{ "--per-page": leaguesPerPage }} ref={boardRef}>
+      <div className="fd-board" ref={boardRef}>
         {viewLeagues.map((l, i) => (
           <LeagueColumn
             key={l.id}
             league={l}
             onSelectPlayer={setSelectedPlayer}
             showProjected={isCurrentWeek}
+            widthPx={colWidthPx}
           />
         ))}
       </div>
@@ -1886,7 +1881,20 @@ function WeekPickerModal({ selectedWeek, onSelect, onClose }) {
   );
 }
 
-function AppHeader({ page, screen, setPage, onGoToScoreboard, onAddLeagues, secondsAgo, onResync, selectedWeek, setSelectedWeek }) {
+function AppHeader({
+  page,
+  screen,
+  setPage,
+  onGoToScoreboard,
+  onAddLeagues,
+  secondsAgo,
+  onResync,
+  selectedWeek,
+  setSelectedWeek,
+  leaguesPerPage,
+  onChangeLeaguesPerPage,
+  showPerPagePicker,
+}) {
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
   const info = weekBadgeInfo(selectedWeek);
   const scoreboardActive = page === "scoreboard" && screen !== "setup";
@@ -1897,12 +1905,39 @@ function AppHeader({ page, screen, setPage, onGoToScoreboard, onAddLeagues, seco
         <span className="fd-logo fd-display" style={{ color: C.white }}>
           League'd <span style={{ color: C.gold }}>Up</span>
         </span>
-        <span className="fd-sync-group">
-          <span className="fd-total fd-body">Synced {secondsAgo}s ago</span>
-          <button className="fd-resync-btn" onClick={onResync} aria-label="Resync now">
-            <RefreshCw size={11} />
-          </button>
-        </span>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
+          <span className="fd-sync-group">
+            <span className="fd-total fd-body">Synced {secondsAgo}s ago</span>
+            <button className="fd-resync-btn" onClick={onResync} aria-label="Resync now">
+              <RefreshCw size={11} />
+            </button>
+          </span>
+          {showPerPagePicker && (
+            <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+              {[2, 3, 4].map((n) => (
+                <button
+                  key={n}
+                  onClick={() => onChangeLeaguesPerPage(n)}
+                  className="fd-body"
+                  style={{
+                    width: 16,
+                    height: 16,
+                    fontSize: 9,
+                    lineHeight: 1,
+                    fontWeight: 700,
+                    padding: 0,
+                    color: leaguesPerPage === n ? C.bg : C.grey,
+                    backgroundColor: leaguesPerPage === n ? C.gold : "transparent",
+                    border: `1px solid ${leaguesPerPage === n ? C.gold : C.line}`,
+                    cursor: "pointer",
+                  }}
+                >
+                  {n}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
       <div className="fd-topnav">
         <button
@@ -2263,6 +2298,9 @@ export default function LeaguedUpApp() {
         onResync={() => setSecondsAgo(0)}
         selectedWeek={selectedWeek}
         setSelectedWeek={setSelectedWeek}
+        leaguesPerPage={leaguesPerPage}
+        onChangeLeaguesPerPage={setLeaguesPerPage}
+        showPerPagePicker={page === "scoreboard" && screen === "live" && orderedLeagues.length > 1}
       />
       {!sleeperUsername && !espnCookies && screen !== "setup" && (
         <div style={{ padding: "30px 20px", textAlign: "center" }}>
@@ -2372,7 +2410,6 @@ export default function LeaguedUpApp() {
           orderedLeagues={syncedLeagues}
           selectedWeek={selectedWeek}
           leaguesPerPage={leaguesPerPage}
-          onChangeLeaguesPerPage={setLeaguesPerPage}
         />
       )}
     </div>
