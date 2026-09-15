@@ -62,12 +62,12 @@ const styles = `
    pixel widths were eating a much bigger share of a much narrower row at
    3-4 per screen, squeezing names down even when there was visible slack. */
 .fd-board[data-perpage="2"] .fd-row { grid-template-columns: 12px 1fr 48px; }
-.fd-board[data-perpage="3"] .fd-row { grid-template-columns: 10px 1fr 38px; }
-.fd-board[data-perpage="4"] .fd-row { grid-template-columns: 9px 1fr 32px; }
+.fd-board[data-perpage="3"] .fd-row { grid-template-columns: 12px 1fr 36px; }
+.fd-board[data-perpage="4"] .fd-row { grid-template-columns: 13px 1fr 30px; }
 @media (min-width: 640px) {
   .fd-board[data-perpage="2"] .fd-row { grid-template-columns: 18px 1fr 66px; }
-  .fd-board[data-perpage="3"] .fd-row { grid-template-columns: 16px 1fr 56px; }
-  .fd-board[data-perpage="4"] .fd-row { grid-template-columns: 14px 1fr 48px; }
+  .fd-board[data-perpage="3"] .fd-row { grid-template-columns: 17px 1fr 55px; }
+  .fd-board[data-perpage="4"] .fd-row { grid-template-columns: 18px 1fr 44px; }
 }
 
 /* purely decorative: spans all 4 rows of its column to draw the "one rectangle
@@ -197,6 +197,8 @@ const styles = `
   font-size: 6.5px;
   font-weight: 700;
   color: #8D8D91;
+  white-space: nowrap;
+  overflow: hidden;
 }
 @media (min-width: 640px) { .fd-pos { font-size: 9px; } }
 @media (min-width: 1024px) { .fd-pos { font-size: 10px; } }
@@ -416,11 +418,21 @@ const styles = `
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 10px 2px;
+  padding: 4px 10px 0;
+}
+@media (min-width: 640px) { .fd-brand-row { padding: 6px 20px 0; } }
+@media (min-width: 1024px) { .fd-brand-row { padding: 8px 32px 0; } }
+
+.fd-brand-caption-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 1px 10px 2px;
   border-bottom: 1px solid #2C2C2E;
 }
-@media (min-width: 640px) { .fd-brand-row { padding: 6px 20px 2px; } }
-@media (min-width: 1024px) { .fd-brand-row { padding: 8px 32px 3px; } }
+@media (min-width: 640px) { .fd-brand-caption-row { padding: 1px 20px 2px; } }
+@media (min-width: 1024px) { .fd-brand-caption-row { padding: 1px 32px 3px; } }
 
 .fd-topnav {
   background: #0A0A0B;
@@ -428,9 +440,9 @@ const styles = `
   align-items: center;
   flex-wrap: wrap;
   gap: 2px;
-  padding: 0 10px 3px;
+  padding: 0 10px 1px;
 }
-@media (min-width: 640px) { .fd-topnav { padding: 0 20px 5px; gap: 6px; } }
+@media (min-width: 640px) { .fd-topnav { padding: 0 20px 3px; gap: 6px; } }
 
 .fd-topnav-tab {
   font-family: 'Oswald', sans-serif;
@@ -1911,39 +1923,44 @@ function AppHeader({
         <span className="fd-logo fd-display" style={{ color: C.white }}>
           League'd <span style={{ color: C.gold }}>Up</span>
         </span>
-        <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 3 }}>
-          <span className="fd-sync-group">
-            <span className="fd-total fd-body">Synced {secondsAgo}s ago</span>
-            <button className="fd-resync-btn" onClick={onResync} aria-label="Resync now">
-              <RefreshCw size={11} />
-            </button>
+        {showPerPagePicker && (
+          <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
+            {[2, 3, 4].map((n) => (
+              <button
+                key={n}
+                onClick={() => onChangeLeaguesPerPage(n)}
+                className="fd-body"
+                style={{
+                  width: 16,
+                  height: 16,
+                  fontSize: 9,
+                  lineHeight: 1,
+                  fontWeight: 700,
+                  padding: 0,
+                  color: leaguesPerPage === n ? C.bg : C.grey,
+                  backgroundColor: leaguesPerPage === n ? C.gold : "transparent",
+                  border: `1px solid ${leaguesPerPage === n ? C.gold : C.line}`,
+                  cursor: "pointer",
+                }}
+              >
+                {n}
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="fd-brand-caption-row">
+        <span className="fd-sync-group">
+          <span className="fd-total fd-body">Synced {secondsAgo}s ago</span>
+          <button className="fd-resync-btn" onClick={onResync} aria-label="Resync now">
+            <RefreshCw size={11} />
+          </button>
+        </span>
+        {showPerPagePicker && (
+          <span className="fd-body" style={{ fontSize: 8, color: C.grey, letterSpacing: 0.3 }}>
+            LEAGUES PER SCREEN (SCROLL RIGHT)
           </span>
-          {showPerPagePicker && (
-            <div style={{ display: "flex", alignItems: "center", gap: 3 }}>
-              {[2, 3, 4].map((n) => (
-                <button
-                  key={n}
-                  onClick={() => onChangeLeaguesPerPage(n)}
-                  className="fd-body"
-                  style={{
-                    width: 16,
-                    height: 16,
-                    fontSize: 9,
-                    lineHeight: 1,
-                    fontWeight: 700,
-                    padding: 0,
-                    color: leaguesPerPage === n ? C.bg : C.grey,
-                    backgroundColor: leaguesPerPage === n ? C.gold : "transparent",
-                    border: `1px solid ${leaguesPerPage === n ? C.gold : C.line}`,
-                    cursor: "pointer",
-                  }}
-                >
-                  {n}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        )}
       </div>
       <div className="fd-topnav">
         <button
