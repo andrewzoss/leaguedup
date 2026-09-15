@@ -41,39 +41,34 @@ const styles = `
    across ALL leagues independently of the opponent card's own height. That's
    what makes every opponent card start at the same row, with zero JS. ---- */
 .fd-board {
-  display: flex;
+  --board-gap: 2px;
+  --per-page: 2;
+  display: grid;
+  grid-auto-flow: column;
+  grid-auto-columns: calc((100% - (var(--per-page) - 1) * var(--board-gap)) / var(--per-page));
+  column-gap: var(--board-gap);
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
   scroll-snap-type: x proximity;
-  gap: 2px;
   padding: 4px;
 }
 @media (min-width: 640px) {
-  .fd-board { gap: 8px; padding: 14px; }
+  .fd-board { --board-gap: 8px; padding: 14px; }
 }
 @media (min-width: 1024px) {
-  .fd-board { gap: 14px; padding: 18px; max-width: 1280px; margin: 0 auto; }
+  .fd-board { --board-gap: 14px; padding: 18px; max-width: 1280px; margin: 0 auto; }
 }
 
-/* Each league is its own fixed-width slice - 2 fit on screen at once, and
-   scrolling between pairs is a normal fluid touch-scroll, not a hard page
-   flip. Own internal 4-row grid (header/you/vs/opp) so a league's own rows
-   line up regardless of roster size, independent of its neighbors now that
-   leagues scroll past each other instead of all sitting in one shared grid. */
+/* Each league is its own slice, sized by the parent's grid-auto-columns
+   above (so the per-page picker controls this from one place). Own internal
+   4-row grid (header/you/vs/opp) so a league's own rows line up regardless
+   of roster size, independent of its neighbors now that leagues scroll past
+   each other instead of all sitting in one shared grid. */
 .fd-league-col-wrap {
-  flex: 0 0 calc(50% - 1px);
   scroll-snap-align: start;
   display: grid;
-  grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto auto auto;
   min-width: 0;
-  width: 100%;
-}
-@media (min-width: 640px) {
-  .fd-league-col-wrap { flex-basis: calc(50% - 4px); }
-}
-@media (min-width: 1024px) {
-  .fd-league-col-wrap { flex-basis: calc(50% - 7px); }
 }
 
 /* purely decorative: spans all 4 rows of its column to draw the "one rectangle
@@ -1786,7 +1781,7 @@ function SetupScreen({
 
 // ---------- Live dashboard screen ----------
 
-function LiveScreen({ orderedLeagues, selectedWeek }) {
+function LiveScreen({ orderedLeagues, selectedWeek, leaguesPerPage, onChangeLeaguesPerPage }) {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
   const isCurrentWeek = selectedWeek === CURRENT_WEEK;
   const viewLeagues = orderedLeagues;
@@ -1801,7 +1796,33 @@ function LiveScreen({ orderedLeagues, selectedWeek }) {
 
   return (
     <div>
-      <div className="fd-board" ref={boardRef}>
+      {viewLeagues.length > 1 && (
+        <div style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", gap: 6, padding: "6px 8px 0" }}>
+          <span className="fd-body" style={{ fontSize: 10, color: C.grey }}>
+            PER SCREEN
+          </span>
+          {[2, 3, 4].map((n) => (
+            <button
+              key={n}
+              onClick={() => onChangeLeaguesPerPage(n)}
+              className="fd-body"
+              style={{
+                width: 22,
+                height: 22,
+                fontSize: 11,
+                fontWeight: 700,
+                color: leaguesPerPage === n ? C.bg : C.grey,
+                backgroundColor: leaguesPerPage === n ? C.gold : "transparent",
+                border: `1px solid ${leaguesPerPage === n ? C.gold : C.line}`,
+                cursor: "pointer",
+              }}
+            >
+              {n}
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="fd-board" style={{ "--per-page": leaguesPerPage }} ref={boardRef}>
         {viewLeagues.map((l, i) => (
           <LeagueColumn
             key={l.id}
@@ -1940,6 +1961,7 @@ const LS_KEYS = {
   espnSwid: "leagueup_espn_swid",
   espnLeagueIds: "leagueup_espn_league_ids",
   nameOverrides: "leagueup_league_name_overrides",
+  perPage: "leagueup_leagues_per_page",
 };
 
 export default function LeaguedUpApp() {
@@ -1959,6 +1981,7 @@ export default function LeaguedUpApp() {
   const [removedIds, setRemovedIds] = useState([]);
   const [leagueOrder, setLeagueOrder] = useState(leagues.map((l) => l.id));
   const [leagueNameOverrides, setLeagueNameOverrides] = useState({}); // league id -> custom display name
+  const [leaguesPerPage, setLeaguesPerPageState] = useState(2);
 
   // Picks up cookies handed off by the ESPN bookmarklet (see the bookmarklet
   // setup instructions), which lands back here as a URL fragment like
@@ -1991,10 +2014,12 @@ export default function LeaguedUpApp() {
       const savedEspnSwid = localStorage.getItem(LS_KEYS.espnSwid);
       const savedEspnLeagueIds = JSON.parse(localStorage.getItem(LS_KEYS.espnLeagueIds) || "null");
       const savedNameOverrides = JSON.parse(localStorage.getItem(LS_KEYS.nameOverrides) || "null");
+      const savedPerPage = Number(localStorage.getItem(LS_KEYS.perPage));
       if (savedUsername) setSleeperUsernameState(savedUsername);
       if (savedEspnS2 && savedEspnSwid) setEspnCookiesState({ s2: savedEspnS2, swid: savedEspnSwid });
       if (savedEspnLeagueIds) setEspnLeagueIdsState(savedEspnLeagueIds);
       if (savedNameOverrides) setLeagueNameOverrides(savedNameOverrides);
+      if ([2, 3, 4].includes(savedPerPage)) setLeaguesPerPageState(savedPerPage);
       if (!savedUsername && !(savedEspnS2 && savedEspnSwid)) {
         setScreen("setup"); // no leagues connected yet - start on Add Leagues, not an empty Scoreboard
       }
@@ -2004,6 +2029,13 @@ export default function LeaguedUpApp() {
       setScreen("setup"); // localStorage unavailable - safest to just let them add leagues
     }
   }, []);
+
+  function setLeaguesPerPage(n) {
+    setLeaguesPerPageState(n);
+    try {
+      localStorage.setItem(LS_KEYS.perPage, String(n));
+    } catch {}
+  }
 
   function renameLeague(id, newName) {
     setLeagueNameOverrides((prev) => {
@@ -2336,7 +2368,12 @@ export default function LeaguedUpApp() {
           selectedWeek={selectedWeek}
         />
       ) : (
-        <LiveScreen orderedLeagues={syncedLeagues} selectedWeek={selectedWeek} />
+        <LiveScreen
+          orderedLeagues={syncedLeagues}
+          selectedWeek={selectedWeek}
+          leaguesPerPage={leaguesPerPage}
+          onChangeLeaguesPerPage={setLeaguesPerPage}
+        />
       )}
     </div>
   );
