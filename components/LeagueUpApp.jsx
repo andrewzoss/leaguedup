@@ -1861,16 +1861,27 @@ function LiveScreen({ orderedLeagues, selectedWeek, leaguesPerPage }) {
 
 // ---------- Persistent app header + top-level nav ----------
 
-const CURRENT_WEEK = 1;
 const ALL_WEEKS = Array.from({ length: 18 }, (_, i) => i + 1);
 
-function weekBadgeInfo(week) {
-  if (week === CURRENT_WEEK) return { label: `LIVE · WK${week}`, color: C.green, dot: true };
-  if (week < CURRENT_WEEK) return { label: `FINAL · WK${week}`, color: C.grey, dot: false };
+// currentWeek is now determined dynamically (see the root component's fetch
+// to /api/nfl/current-week) rather than a hardcoded number that would need
+// updating for every new season. weekHasStarted distinguishes "this is the
+// real current week, but no games have kicked off yet" (still projected)
+// from "this week is actually underway" (live) - both cases have
+// week === currentWeek, so the label needs that extra signal to tell them
+// apart. Before the real current week is known yet (briefly, on first
+// load) or the schedule hasn't loaded, currentWeek/weekHasStarted just fall
+// back to sensible defaults below.
+function weekBadgeInfo(week, currentWeek, weekHasStarted) {
+  if (week === currentWeek) {
+    if (weekHasStarted) return { label: `LIVE · WK${week}`, color: C.green, dot: true };
+    return { label: `PROJECTED · WK${week}`, color: C.gold, dot: false };
+  }
+  if (week < currentWeek) return { label: `FINAL · WK${week}`, color: C.grey, dot: false };
   return { label: `PROJECTED · WK${week}`, color: C.gold, dot: false };
 }
 
-function WeekPickerModal({ selectedWeek, onSelect, onClose }) {
+function WeekPickerModal({ selectedWeek, onSelect, onClose, currentWeek, weekHasStarted }) {
   return (
     <div className="fd-modal-backdrop" onClick={onClose}>
       <div className="fd-modal" onClick={(e) => e.stopPropagation()}>
@@ -1886,7 +1897,7 @@ function WeekPickerModal({ selectedWeek, onSelect, onClose }) {
         </p>
         <div className="fd-week-grid">
           {ALL_WEEKS.map((w) => {
-            const info = weekBadgeInfo(w);
+            const info = weekBadgeInfo(w, currentWeek, weekHasStarted);
             return (
               <button
                 key={w}
@@ -1920,9 +1931,11 @@ function AppHeader({
   leaguesPerPage,
   onChangeLeaguesPerPage,
   showPerPagePicker,
+  currentWeek,
+  weekHasStarted,
 }) {
   const [weekPickerOpen, setWeekPickerOpen] = useState(false);
-  const info = weekBadgeInfo(selectedWeek);
+  const info = weekBadgeInfo(selectedWeek, currentWeek, weekHasStarted);
   const scoreboardActive = page === "scoreboard" && screen !== "setup";
 
   return (
@@ -2011,6 +2024,8 @@ function AppHeader({
           selectedWeek={selectedWeek}
           onSelect={setSelectedWeek}
           onClose={() => setWeekPickerOpen(false)}
+          currentWeek={currentWeek}
+          weekHasStarted={weekHasStarted}
         />
       )}
     </div>
@@ -2033,8 +2048,28 @@ const LS_KEYS = {
 export default function LeaguedUpApp() {
   const [page, setPage] = useState("scoreboard");
   const [screen, setScreen] = useState("live");
-  const [selectedWeek, setSelectedWeek] = useState(CURRENT_WEEK);
+  const [selectedWeek, setSelectedWeek] = useState(1); // updated to the real current week below, once known
   const [secondsAgo, setSecondsAgo] = useState(0);
+  const [currentWeek, setCurrentWeek] = useState(1);
+
+  // Finds out which week is actually "now" (per ESPN's own current-week
+  // designation - see /api/nfl/current-week) and jumps the initial
+  // selection there, instead of always defaulting to week 1. Runs once on
+  // mount, so it never overrides a week the person picks manually later.
+  React.useEffect(() => {
+    let cancelled = false;
+    fetch("/api/nfl/current-week")
+      .then((res) => res.json())
+      .then((data) => {
+        if (cancelled || !data.week) return;
+        setCurrentWeek(data.week);
+        setSelectedWeek(data.week);
+      })
+      .catch(() => {}); // fine to just stay on the week-1 fallback if this fails
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // Sleeper username, ESPN cookies/league ids, retry counter, and per-device
   // saved order/removals. Start at safe defaults (matches server render),
@@ -2303,6 +2338,18 @@ export default function LeaguedUpApp() {
     [orderedLeagues, scheduleVersion]
   );
 
+  // Whether the real current week's games have actually kicked off yet -
+  // distinguishes "it's the current week, but still Tuesday" (projected)
+  // from "the week is underway" (live). Reads CURRENT_GAMES directly since
+  // it's already the real schedule for whichever week is selected;
+  // scheduleVersion in the dependency isn't read here but is what signals
+  // this needs recomputing once schedule data has (re)loaded.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const weekHasStarted = React.useMemo(
+    () => selectedWeek === currentWeek && CURRENT_GAMES.some((g) => g.state && g.state !== "pre"),
+    [selectedWeek, currentWeek, scheduleVersion]
+  );
+
   React.useEffect(() => {
     const tick = setInterval(() => {
       setSecondsAgo((s) => (s >= 30 ? 0 : s + 1)); // simulates a 30s auto-refresh cycle
@@ -2332,6 +2379,8 @@ export default function LeaguedUpApp() {
         leaguesPerPage={leaguesPerPage}
         onChangeLeaguesPerPage={setLeaguesPerPage}
         showPerPagePicker={page === "scoreboard" && screen === "live" && orderedLeagues.length > 1}
+        currentWeek={currentWeek}
+        weekHasStarted={weekHasStarted}
       />
       {!sleeperUsername && !espnCookies && screen !== "setup" && (
         <div style={{ padding: "30px 20px", textAlign: "center" }}>
