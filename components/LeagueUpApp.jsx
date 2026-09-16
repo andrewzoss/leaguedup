@@ -209,9 +209,11 @@ const styles = `
   overflow: hidden;
   white-space: nowrap;
   min-width: 0;
+  padding-right: 3px;
+  box-sizing: border-box;
 }
-@media (min-width: 640px) { .fd-name { font-size: 11px; } }
-@media (min-width: 1024px) { .fd-name { font-size: 13px; } }
+@media (min-width: 640px) { .fd-name { font-size: 11px; padding-right: 5px; } }
+@media (min-width: 1024px) { .fd-name { font-size: 13px; padding-right: 6px; } }
 
 .fd-pts {
   font-size: 7.5px;
