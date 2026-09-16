@@ -61,13 +61,13 @@ const styles = `
 /* Points column width scales with how many leagues are on screen - fixed
    pixel widths were eating a much bigger share of a much narrower row at
    3-4 per screen, squeezing names down even when there was visible slack. */
-.fd-board[data-perpage="2"] .fd-row { grid-template-columns: 12px 1fr 48px; }
-.fd-board[data-perpage="3"] .fd-row { grid-template-columns: 12px 1fr 36px; }
-.fd-board[data-perpage="4"] .fd-row { grid-template-columns: 13px 1fr 30px; }
+.fd-board[data-perpage="2"] .fd-row { grid-template-columns: 12px minmax(0, 1fr) 48px; }
+.fd-board[data-perpage="3"] .fd-row { grid-template-columns: 12px minmax(0, 1fr) 36px; }
+.fd-board[data-perpage="4"] .fd-row { grid-template-columns: 13px minmax(0, 1fr) 30px; }
 @media (min-width: 640px) {
-  .fd-board[data-perpage="2"] .fd-row { grid-template-columns: 18px 1fr 66px; }
-  .fd-board[data-perpage="3"] .fd-row { grid-template-columns: 17px 1fr 55px; }
-  .fd-board[data-perpage="4"] .fd-row { grid-template-columns: 18px 1fr 44px; }
+  .fd-board[data-perpage="2"] .fd-row { grid-template-columns: 18px minmax(0, 1fr) 66px; }
+  .fd-board[data-perpage="3"] .fd-row { grid-template-columns: 17px minmax(0, 1fr) 55px; }
+  .fd-board[data-perpage="4"] .fd-row { grid-template-columns: 18px minmax(0, 1fr) 44px; }
 }
 
 /* purely decorative: spans all 4 rows of its column to draw the "one rectangle
@@ -168,7 +168,7 @@ const styles = `
 /* ---- starter rows ---- */
 .fd-row {
   display: grid;
-  grid-template-columns: 12px 1fr 48px;
+  grid-template-columns: 12px minmax(0, 1fr) 48px;
   align-items: center;
   column-gap: 2px;
   padding: 1.5px 0;
@@ -190,7 +190,7 @@ const styles = `
 @media (min-width: 640px) { .fd-row-game { font-size: 9px; padding-left: 19px; } }
 @media (min-width: 1024px) { .fd-row-game { font-size: 10px; padding-left: 25px; } }
 @media (min-width: 640px) {
-  .fd-row { grid-template-columns: 18px 1fr 66px; column-gap: 6px; padding: 3.5px 0; }
+  .fd-row { grid-template-columns: 18px minmax(0, 1fr) 66px; column-gap: 6px; padding: 3.5px 0; }
 }
 
 .fd-pos {
@@ -378,7 +378,7 @@ const styles = `
 .fd-modal-score-row { display: flex; gap: 24px; margin-bottom: 16px; padding-bottom: 14px; border-bottom: 1px solid #2C2C2E; }
 .fd-modal-label { font-size: 9px; color: #8D8D91; letter-spacing: 0.5px; display: block; margin-bottom: 3px; }
 .fd-modal-pts { font-size: 28px; line-height: 1; }
-.fd-modal-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.fd-modal-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px 8px; }
 .fd-modal-grid > div { display: flex; flex-direction: column; }
 .fd-modal-val { font-size: 13px; color: #F5F3EC; }
 .fd-modal-section-label { font-size: 9px; color: #F2B705; letter-spacing: 1px; margin-bottom: 8px; }
@@ -418,10 +418,10 @@ const styles = `
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
-  padding: 4px 10px 0;
+  padding: 2px 10px 0;
 }
-@media (min-width: 640px) { .fd-brand-row { padding: 6px 20px 0; } }
-@media (min-width: 1024px) { .fd-brand-row { padding: 8px 32px 0; } }
+@media (min-width: 640px) { .fd-brand-row { padding: 3px 20px 0; } }
+@media (min-width: 1024px) { .fd-brand-row { padding: 4px 32px 0; } }
 
 .fd-brand-caption-row {
   display: flex;
@@ -1793,7 +1793,6 @@ function SetupScreen({
 
 function LiveScreen({ orderedLeagues, selectedWeek, leaguesPerPage }) {
   const [selectedPlayer, setSelectedPlayer] = useState(null);
-  const isCurrentWeek = selectedWeek === CURRENT_WEEK;
   const viewLeagues = orderedLeagues;
   const boardRef = React.useRef(null);
   const [colWidthPx, setColWidthPx] = useState(null);
@@ -1840,7 +1839,7 @@ function LiveScreen({ orderedLeagues, selectedWeek, leaguesPerPage }) {
             key={l.id}
             league={l}
             onSelectPlayer={setSelectedPlayer}
-            showProjected={isCurrentWeek}
+            showProjected
             colIndex={i}
           />
         ))}
