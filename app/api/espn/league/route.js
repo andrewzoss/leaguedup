@@ -54,7 +54,12 @@ function getPlayerStatsForWeek(player, week) {
 // distance range, points-allowed tiers, etc), so those two positions are
 // left on the client's fake fallback rather than risk showing confidently
 // wrong real-looking numbers.
-const STAT_IDS = { passYds: 3, passTD: 4, passInt: 20, rushYds: 25, rushTD: 26, recYds: 42, recTD: 43, rec: 53, targets: 58 };
+const STAT_IDS = { passYds: 3, passTD: 4, passInt: 20, rushYds: 24, rushTD: 25, recYds: 42, recTD: 43, rec: 53, targets: 58 };
+// rushYds=24 and rushTD=25 confirmed/adjusted from a real player's raw stat
+// object (rushYds matched a real 102-yard game exactly; rushTD is the
+// adjacent id following the same attempts(23)->yards(24) pattern, but
+// wasn't itself confirmed by a nonzero example yet - worth rechecking
+// against a player who actually scored a rushing TD.
 
 function realBoxScore(pos, rawStats) {
   if (!rawStats) return null;
