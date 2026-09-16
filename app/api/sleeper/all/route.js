@@ -97,6 +97,7 @@ function realBoxScore(pos, stats) {
       { label: "PASS TD", value: num(stats.pass_td) },
       { label: "INT", value: num(stats.pass_int) },
       { label: "RUSH YDS", value: Math.round(num(stats.rush_yd)) },
+      { label: "RUSH TD", value: num(stats.rush_td) },
     ];
   }
   if (pos === "RB") {
@@ -105,6 +106,7 @@ function realBoxScore(pos, stats) {
       { label: "RUSH TD", value: num(stats.rush_td) },
       { label: "REC", value: num(stats.rec) },
       { label: "REC YDS", value: Math.round(num(stats.rec_yd)) },
+      { label: "REC TD", value: num(stats.rec_td) },
     ];
   }
   if (pos === "WR" || pos === "TE") {
