@@ -69,6 +69,11 @@ const styles = `
   .fd-board[data-perpage="3"] .fd-row { grid-template-columns: 17px minmax(0, 1fr) 55px; }
   .fd-board[data-perpage="4"] .fd-row { grid-template-columns: 18px minmax(0, 1fr) 44px; }
 }
+@media (min-width: 1024px) {
+  .fd-board[data-perpage="2"] .fd-row { grid-template-columns: 24px minmax(0, 1fr) 80px; }
+  .fd-board[data-perpage="3"] .fd-row { grid-template-columns: 22px minmax(0, 1fr) 68px; }
+  .fd-board[data-perpage="4"] .fd-row { grid-template-columns: 20px minmax(0, 1fr) 56px; }
+}
 
 /* purely decorative: spans all 4 rows of its column to draw the "one rectangle
    per league" border, regardless of how tall that league's own content is.
