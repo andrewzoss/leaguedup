@@ -58,22 +58,12 @@ const styles = `
   .fd-board { gap: 14px; padding: 18px; max-width: 1280px; margin: 0 auto; }
 }
 
-/* Points column width scales with how many leagues are on screen - fixed
-   pixel widths were eating a much bigger share of a much narrower row at
-   3-4 per screen, squeezing names down even when there was visible slack. */
-.fd-board[data-perpage="2"] .fd-row { grid-template-columns: 12px minmax(0, 1fr) 48px; }
-.fd-board[data-perpage="3"] .fd-row { grid-template-columns: 12px minmax(0, 1fr) 36px; }
-.fd-board[data-perpage="4"] .fd-row { grid-template-columns: 13px minmax(0, 1fr) 30px; }
-@media (min-width: 640px) {
-  .fd-board[data-perpage="2"] .fd-row { grid-template-columns: 18px minmax(0, 1fr) 66px; }
-  .fd-board[data-perpage="3"] .fd-row { grid-template-columns: 17px minmax(0, 1fr) 55px; }
-  .fd-board[data-perpage="4"] .fd-row { grid-template-columns: 18px minmax(0, 1fr) 44px; }
-}
-@media (min-width: 1024px) {
-  .fd-board[data-perpage="2"] .fd-row { grid-template-columns: 24px minmax(0, 1fr) 80px; }
-  .fd-board[data-perpage="3"] .fd-row { grid-template-columns: 22px minmax(0, 1fr) 68px; }
-  .fd-board[data-perpage="4"] .fd-row { grid-template-columns: 20px minmax(0, 1fr) 56px; }
-}
+/* Note: row layout (pos/name/pts) switched from CSS Grid to flexbox - see
+   .fd-row/.fd-row-main below. With flexbox, the points side sizes itself to
+   its own content naturally instead of needing a hand-tuned pixel width per
+   per-page setting, so the old per-perpage width rules that used to live
+   here are gone; data-perpage is kept on the board element for any other
+   per-density styling that might want it later. */
 
 /* purely decorative: spans all 4 rows of its column to draw the "one rectangle
    per league" border, regardless of how tall that league's own content is.
@@ -172,19 +162,24 @@ const styles = `
 
 /* ---- starter rows ---- */
 .fd-row {
-  display: grid;
-  grid-template-columns: 12px minmax(0, 1fr) 48px;
-  align-items: center;
-  column-gap: 2px;
+  display: flex;
+  flex-direction: column;
   padding: 1.5px 0;
   border-bottom: 1px solid #2C2C2E;
   cursor: pointer;
 }
+.fd-row-main {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
 .fd-row:last-child { border-bottom: none; }
 .fd-row:hover .fd-name { text-decoration: underline; }
-.fd-row-tall { row-gap: 1px; padding-bottom: 3px; }
+.fd-row-tall { gap: 1px; padding-bottom: 3px; }
+.fd-pos { flex: 0 0 12px; }
+.fd-name { flex: 1 1 0%; min-width: 0; }
+.fd-pts-wrap { flex: 0 0 auto; }
 .fd-row-game {
-  grid-column: 1 / -1;
   font-size: 6px;
   color: #6B6B6F;
   padding-left: 13px;
@@ -195,7 +190,12 @@ const styles = `
 @media (min-width: 640px) { .fd-row-game { font-size: 9px; padding-left: 19px; } }
 @media (min-width: 1024px) { .fd-row-game { font-size: 10px; padding-left: 25px; } }
 @media (min-width: 640px) {
-  .fd-row { grid-template-columns: 18px minmax(0, 1fr) 66px; column-gap: 6px; padding: 3.5px 0; }
+  .fd-row-main { gap: 6px; }
+  .fd-row { padding: 3.5px 0; }
+  .fd-pos { flex-basis: 18px; }
+}
+@media (min-width: 1024px) {
+  .fd-pos { flex-basis: 24px; }
 }
 
 .fd-pos {
@@ -797,12 +797,14 @@ function StarterRow({ p, onSelect, showGame }) {
   const ptsClass = getPtsClass(p);
   return (
     <div className={`fd-row ${showGame ? "fd-row-tall" : ""}`} onClick={() => onSelect(p)}>
-      <span className="fd-pos fd-body">{p.pos}</span>
-      <span className="fd-name fd-body">{p.name}</span>
-      <span className="fd-pts-wrap">
-        <span className={`fd-pts fd-body ${ptsClass}`}>{p.pts.toFixed(1)}</span>
-        <span className="fd-proj-mini fd-body">({p.proj.toFixed(1)})</span>
-      </span>
+      <div className="fd-row-main">
+        <span className="fd-pos fd-body">{p.pos}</span>
+        <span className="fd-name fd-body">{p.name}</span>
+        <span className="fd-pts-wrap">
+          <span className={`fd-pts fd-body ${ptsClass}`}>{p.pts.toFixed(1)}</span>
+          <span className="fd-proj-mini fd-body">({p.proj.toFixed(1)})</span>
+        </span>
+      </div>
       {showGame && <span className="fd-row-game fd-body">{gameLine(p)}</span>}
     </div>
   );
