@@ -135,10 +135,13 @@ function realBoxScore(pos, stats) {
 // Real season-average projection: average of this player's own points across
 // every already-completed week (1..week-1) in this league. Week 1 has no
 // history yet, so it just falls back to that week's own points.
+// Also returns the raw per-week matchup data it fetched, so the defense-
+// adjustment logic below can reuse it instead of fetching the same weeks
+// twice.
 async function getSeasonAverages(leagueId, week) {
   const upToWeek = Number(week) - 1;
   const averages = {};
-  if (upToWeek < 1) return averages;
+  if (upToWeek < 1) return { averages, pastWeeksMatchups: [] };
 
   const weekNums = Array.from({ length: upToWeek }, (_, i) => i + 1);
   const allWeeks = await Promise.all(
@@ -163,10 +166,117 @@ async function getSeasonAverages(leagueId, week) {
   Object.entries(totals).forEach(([playerId, { sum, count }]) => {
     averages[playerId] = count > 0 ? +(sum / count).toFixed(1) : 0;
   });
-  return averages;
+  return { averages, pastWeeksMatchups: allWeeks.map((matchups, i) => ({ week: weekNums[i], matchups })) };
 }
 
-function buildTeam({ roster, matchup, users, playersMap, rosterPositions, weekStats, seasonAverages, week }) {
+// Real NFL team-vs-team pairings for a given week (who played whom - not
+// live scores, just the schedule), pulled from the same ESPN scoreboard the
+// rest of the app uses for real schedule data. A week's pairings never
+// change once the season's underway, so this is cached for a long time and
+// shared across every league/user hitting this deployment.
+const PAIRINGS_CACHE = new Map(); // key `${year}-${week}` -> { data, fetchedAt }
+const PAIRINGS_CACHE_TTL_MS = 1000 * 60 * 60 * 12; // 12 hours
+
+async function getWeekPairings(week, year) {
+  const key = `${year}-${week}`;
+  const cached = PAIRINGS_CACHE.get(key);
+  if (cached && Date.now() - cached.fetchedAt < PAIRINGS_CACHE_TTL_MS) return cached.data;
+  try {
+    const res = await fetch(
+      `https://site.api.espn.com/apis/site/v2/sports/football/nfl/scoreboard?week=${week}&seasontype=2&year=${year}`
+    );
+    if (!res.ok) return {};
+    const data = await res.json();
+    const pairings = {};
+    (data.events || []).forEach((event) => {
+      const competitors = event.competitions?.[0]?.competitors || [];
+      if (competitors.length !== 2) return;
+      const abbrevA = competitors[0].team?.abbreviation;
+      const abbrevB = competitors[1].team?.abbreviation;
+      if (abbrevA && abbrevB) {
+        pairings[abbrevA] = abbrevB;
+        pairings[abbrevB] = abbrevA;
+      }
+    });
+    PAIRINGS_CACHE.set(key, { data: pairings, fetchedAt: Date.now() });
+    return pairings;
+  } catch {
+    return {};
+  }
+}
+
+// Opponent-adjusted projection multipliers, by real NFL team + position.
+// Built from this league's own rostered players' actual scoring history
+// (in this league's own scoring settings, since these are real points
+// Sleeper already computed) cross-referenced against the real schedule to
+// see who each of those points was actually scored against. A defense
+// that's allowed more than average to a position gets a multiplier above
+// 1 (softer matchup), less than average gets a multiplier below 1
+// (tougher matchup).
+//
+// Honest caveats: this only sees players actually rostered in THIS league
+// (not every real NFL player), assumes a player's current team was also
+// their team in past weeks (wrong for in-season trades), and is a simple
+// historical-average signal, not a real predictive model with injury
+// reports, Vegas lines, etc. Clamped and gated on a minimum sample size to
+// keep it from swinging wildly on small numbers.
+const MIN_WEEKS_FOR_ADJUSTMENT = 3;
+const MULTIPLIER_MIN = 0.75;
+const MULTIPLIER_MAX = 1.3;
+
+async function getDefenseAdjustments(pastWeeksMatchups, playersMap, year) {
+  if (pastWeeksMatchups.length < MIN_WEEKS_FOR_ADJUSTMENT) return null;
+
+  const weekPairings = await Promise.all(
+    pastWeeksMatchups.map(({ week }) => getWeekPairings(week, year))
+  );
+
+  const allowed = {}; // team -> position -> { sum, count }
+  pastWeeksMatchups.forEach(({ matchups }, i) => {
+    const pairings = weekPairings[i];
+    matchups.forEach((m) => {
+      const pointsMap = m.players_points || {};
+      Object.entries(pointsMap).forEach(([playerId, pts]) => {
+        const p = playersMap[playerId];
+        const pos = p?.position;
+        const team = p?.team;
+        if (!pos || !team) return;
+        const opponent = pairings[team];
+        if (!opponent) return; // bye week, or pairing lookup missed
+        if (!allowed[opponent]) allowed[opponent] = {};
+        if (!allowed[opponent][pos]) allowed[opponent][pos] = { sum: 0, count: 0 };
+        allowed[opponent][pos].sum += pts || 0;
+        allowed[opponent][pos].count += 1;
+      });
+    });
+  });
+
+  // League-wide (this fantasy league's rostered players only) average
+  // points allowed per position, as the baseline "normal" matchup.
+  const leagueTotals = {}; // position -> { sum, count }
+  Object.values(allowed).forEach((byPos) => {
+    Object.entries(byPos).forEach(([pos, { sum, count }]) => {
+      if (!leagueTotals[pos]) leagueTotals[pos] = { sum: 0, count: 0 };
+      leagueTotals[pos].sum += sum;
+      leagueTotals[pos].count += count;
+    });
+  });
+
+  function multiplierFor(team, pos) {
+    const teamStat = allowed[team]?.[pos];
+    const leagueStat = leagueTotals[pos];
+    if (!teamStat || !leagueStat || teamStat.count < 2 || leagueStat.count < 6) return 1;
+    const teamAvg = teamStat.sum / teamStat.count;
+    const leagueAvg = leagueStat.sum / leagueStat.count;
+    if (leagueAvg <= 0) return 1;
+    const raw = teamAvg / leagueAvg;
+    return Math.min(MULTIPLIER_MAX, Math.max(MULTIPLIER_MIN, raw));
+  }
+
+  return multiplierFor;
+}
+
+function buildTeam({ roster, matchup, users, playersMap, rosterPositions, weekStats, seasonAverages, getMultiplier, currentWeekPairings, week }) {
   const owner = users.find((u) => u.user_id === roster.owner_id);
   const teamName = owner?.metadata?.team_name || owner?.display_name || "Unnamed Team";
   const wins = roster.settings?.wins ?? 0;
@@ -185,7 +295,14 @@ function buildTeam({ roster, matchup, users, playersMap, rosterPositions, weekSt
     const realPos = p?.position;
     const pts = +(pointsMap[playerId] || 0).toFixed(1);
     const label = slotLabel(slot);
-    const proj = Number(week) === 1 ? pts : seasonAverages[playerId] ?? pts;
+    const baseProj = Number(week) === 1 ? pts : seasonAverages[playerId] ?? pts;
+    // Opponent-adjusted on top of the season average, when we have enough
+    // history and know who this player's team is facing this week - see
+    // the notes above getDefenseAdjustments for what this does and doesn't
+    // account for.
+    const opponent = p?.team ? currentWeekPairings[p.team] : null;
+    const multiplier = getMultiplier && opponent && realPos ? getMultiplier(opponent, realPos) : 1;
+    const proj = +(baseProj * multiplier).toFixed(1);
     const row = {
       pos: label,
       name,
@@ -211,12 +328,13 @@ function buildTeam({ roster, matchup, users, playersMap, rosterPositions, weekSt
 
 async function buildOneLeague(leagueMeta, userId, week, playersMap, weekStats) {
   const leagueId = leagueMeta.league_id;
-  const [leagueRes, rostersRes, usersRes, matchupsRes, seasonAverages] = await Promise.all([
+  const [leagueRes, rostersRes, usersRes, matchupsRes, seasonData, currentWeekPairings] = await Promise.all([
     fetch(`https://api.sleeper.app/v1/league/${leagueId}`),
     fetch(`https://api.sleeper.app/v1/league/${leagueId}/rosters`),
     fetch(`https://api.sleeper.app/v1/league/${leagueId}/users`),
     fetch(`https://api.sleeper.app/v1/league/${leagueId}/matchups/${week}`),
     getSeasonAverages(leagueId, week),
+    getWeekPairings(week, SEASON),
   ]);
   if (!leagueRes.ok || !rostersRes.ok || !usersRes.ok || !matchupsRes.ok) return null;
 
@@ -225,6 +343,8 @@ async function buildOneLeague(leagueMeta, userId, week, playersMap, weekStats) {
   const users = await usersRes.json();
   const matchups = await matchupsRes.json();
   const rosterPositions = league.roster_positions || [];
+  const { averages: seasonAverages, pastWeeksMatchups } = seasonData;
+  const getMultiplier = await getDefenseAdjustments(pastWeeksMatchups, playersMap, SEASON);
 
   const myRoster = rosters.find((r) => r.owner_id === userId);
   if (!myRoster) return null;
@@ -236,7 +356,16 @@ async function buildOneLeague(leagueMeta, userId, week, playersMap, weekStats) {
   const oppRoster = oppMatchup ? rosters.find((r) => r.roster_id === oppMatchup.roster_id) : null;
   if (!oppRoster) return null;
 
-  const buildArgs = { users, playersMap, rosterPositions, weekStats, seasonAverages, week };
+  const buildArgs = {
+    users,
+    playersMap,
+    rosterPositions,
+    weekStats,
+    seasonAverages,
+    getMultiplier,
+    currentWeekPairings,
+    week,
+  };
   return {
     id: leagueId,
     platform: "sleeper",
