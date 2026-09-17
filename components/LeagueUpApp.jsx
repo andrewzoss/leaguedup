@@ -1566,6 +1566,23 @@ function SetupScreen({
               Save
             </button>
           </div>
+          {sleeperUsername && (
+            <a
+              href={`/api/sleeper/all?username=${sleeperUsername}&week=${selectedWeek}${
+                espnCookies && espnLeagueIds[0]
+                  ? `&espn_s2=${encodeURIComponent(espnCookies.s2)}&espn_swid=${encodeURIComponent(
+                      espnCookies.swid
+                    )}&espn_league_id=${espnLeagueIds[0]}`
+                  : ""
+              }`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="fd-body"
+              style={{ fontSize: 10, color: C.gold, textDecoration: "underline", display: "inline-block", marginTop: 8 }}
+            >
+              View raw data (exactly what the app sends, ESPN credentials included if connected)
+            </a>
+          )}
         </PlatformBox>
 
         <PlatformBox label="ADD ESPN LEAGUE" color={PLATFORM_COLORS.espn}>
