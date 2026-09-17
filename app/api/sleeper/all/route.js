@@ -377,19 +377,34 @@ async function getEspnProjectionPool(espnS2, espnSwid, espnLeagueId, week, year)
     }
     const entries = data.players || [];
     const pool = {};
+    let noStatsCount = 0;
     entries.forEach((entry) => {
-      const player = entry.player;
+      // ESPN nests the player object under playerPoolEntry.player in the
+      // roster-scoped endpoint that already works elsewhere in this app -
+      // trying that path first, with entry.player as a fallback in case
+      // this player-pool endpoint shapes it differently.
+      const player = entry.playerPoolEntry?.player || entry.player;
       if (!player) return;
       const key = espnPlayerKey(player.firstName, player.lastName, player.defaultPositionId);
       const projectedStat = (player.stats || []).find(
         (s) => s.scoringPeriodId === Number(week) && s.statSourceId === 1
       );
       if (projectedStat?.stats) pool[key] = projectedStat.stats;
+      else noStatsCount += 1;
     });
-    return {
-      pool,
-      debug: { playersReturned: entries.length, poolSize: Object.keys(pool).length, sampleKeys: Object.keys(pool).slice(0, 8) },
+    const debug = {
+      playersReturned: entries.length,
+      poolSize: Object.keys(pool).length,
+      sampleKeys: Object.keys(pool).slice(0, 8),
+      noStatsCount,
     };
+    // TEMPORARY: if the pool is still empty despite entries existing, show
+    // the raw shape of the first entry so the actual structure can be seen
+    // directly instead of guessing at it a third time.
+    if (entries.length > 0 && Object.keys(pool).length === 0) {
+      debug.firstEntrySample = JSON.stringify(entries[0]).slice(0, 800);
+    }
+    return { pool, debug };
   } catch (err) {
     return { pool: {}, debug: { error: `Threw: ${err.message}` } };
   }
