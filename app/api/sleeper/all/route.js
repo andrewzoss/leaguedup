@@ -134,12 +134,34 @@ function realBoxScore(pos, stats) {
   return null;
 }
 
-// Real season-average projection: average of this player's own points across
-// every already-completed week (1..week-1) in this league. Week 1 has no
-// history yet, so it just falls back to that week's own points.
-// Also returns the raw per-week matchup data it fetched, so the defense-
-// adjustment logic below can reuse it instead of fetching the same weeks
-// twice.
+// Real trend-based projection: fits a straight line (ordinary least
+// squares) to each player's own week-by-week scoring history and
+// extrapolates it to the upcoming week - a rising or falling role/usage
+// trend actually shows up here, unlike a flat average, which treats every
+// week as equally representative of what's coming next. Blended with the
+// player's own season average, weighted toward the trend as more weeks of
+// history accumulate (an early-season trend off 2 games is mostly noise; a
+// trend off 8 games means something), and clamped so a couple of outlier
+// games can't extrapolate into an absurd number. Also returns the raw
+// per-week matchup data it fetched, so the defense-adjustment logic below
+// can reuse it instead of fetching the same weeks twice.
+function fitLinearTrend(points) {
+  const n = points.length;
+  if (n < 2) return null;
+  const meanX = points.reduce((s, p) => s + p.x, 0) / n;
+  const meanY = points.reduce((s, p) => s + p.y, 0) / n;
+  let num = 0;
+  let den = 0;
+  points.forEach((p) => {
+    num += (p.x - meanX) * (p.y - meanY);
+    den += (p.x - meanX) ** 2;
+  });
+  if (den === 0) return null;
+  const slope = num / den;
+  const intercept = meanY - slope * meanX;
+  return { slope, intercept };
+}
+
 async function getSeasonAverages(leagueId, week) {
   const upToWeek = Number(week) - 1;
   const averages = {};
@@ -154,20 +176,40 @@ async function getSeasonAverages(leagueId, week) {
     )
   );
 
-  const totals = {}; // player_id -> { sum, count }
-  allWeeks.forEach((matchups) => {
+  // Per-player weekly history: player_id -> [{x: weekNumber, y: points}, ...]
+  const history = {};
+  allWeeks.forEach((matchups, i) => {
+    const weekNum = weekNums[i];
     matchups.forEach((m) => {
       const pointsMap = m.players_points || {};
       Object.entries(pointsMap).forEach(([playerId, pts]) => {
-        if (!totals[playerId]) totals[playerId] = { sum: 0, count: 0 };
-        totals[playerId].sum += pts || 0;
-        totals[playerId].count += 1;
+        if (!history[playerId]) history[playerId] = [];
+        history[playerId].push({ x: weekNum, y: pts || 0 });
       });
     });
   });
-  Object.entries(totals).forEach(([playerId, { sum, count }]) => {
-    averages[playerId] = count > 0 ? +(sum / count).toFixed(1) : 0;
+
+  Object.entries(history).forEach(([playerId, points]) => {
+    const n = points.length;
+    const seasonAvg = points.reduce((s, p) => s + p.y, 0) / n;
+    const trend = fitLinearTrend(points);
+    let proj = seasonAvg;
+    if (trend) {
+      const rawTrendProj = trend.slope * Number(week) + trend.intercept;
+      // Weight toward the trend as more games accumulate (caps at 70%
+      // trend / 30% average by 6+ games, so a hot/cold streak is
+      // reflected but never fully overrides the season-long baseline).
+      const trendWeight = Math.min(0.7, n * 0.12);
+      const blended = trendWeight * rawTrendProj + (1 - trendWeight) * seasonAvg;
+      // Clamp so a couple of outlier weeks can't extrapolate into a wild
+      // number - never below 0, never more than 1.6x the player's own best
+      // game this season (a generous ceiling, not a tight one).
+      const bestGame = Math.max(...points.map((p) => p.y));
+      proj = Math.max(0, Math.min(blended, bestGame * 1.6 || 0));
+    }
+    averages[playerId] = +proj.toFixed(1);
   });
+
   return { averages, pastWeeksMatchups: allWeeks.map((matchups, i) => ({ week: weekNums[i], matchups })) };
 }
 
@@ -298,10 +340,10 @@ function buildTeam({ roster, matchup, users, playersMap, rosterPositions, weekSt
     const pts = +(pointsMap[playerId] || 0).toFixed(1);
     const label = slotLabel(slot);
     const baseProj = Number(week) === 1 ? pts : seasonAverages[playerId] ?? pts;
-    // Opponent-adjusted on top of the season average, when we have enough
-    // history and know who this player's team is facing this week - see
-    // the notes above getDefenseAdjustments for what this does and doesn't
-    // account for.
+    // Opponent-adjusted on top of the trend-based projection above, when we
+    // have enough history and know who this player's team is facing this
+    // week - see the notes above getDefenseAdjustments for what this does
+    // and doesn't account for.
     const opponent = p?.team ? currentWeekPairings[p.team] : null;
     const multiplier = getMultiplier && opponent && realPos ? getMultiplier(opponent, realPos) : 1;
     const proj = +(baseProj * multiplier).toFixed(1);
