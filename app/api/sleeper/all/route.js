@@ -320,7 +320,112 @@ async function getDefenseAdjustments(pastWeeksMatchups, playersMap, year) {
   return multiplierFor;
 }
 
-function buildTeam({ roster, matchup, users, playersMap, rosterPositions, weekStats, seasonAverages, getMultiplier, currentWeekPairings, week }) {
+// Real external projections: ESPN publishes genuine forward-looking
+// per-stat projections (projected pass yards, rush yards, receptions, etc -
+// not points) for basically any NFL player, independent of what platform
+// or league they're actually rostered in. This pulls that raw projected
+// stat line for every player ESPN has projections for this week, keyed by
+// a name+team match so a Sleeper player can be matched against it, then
+// applies THIS Sleeper league's own real scoring settings to those
+// projected stats to get a genuinely external point projection - not
+// anything derived from this league's own history.
+//
+// Honest flags: this specific ESPN endpoint (a general player pool with
+// projections, not tied to one fantasy roster) hasn't been used anywhere
+// else in this app and is unverified - the filter header shape below is a
+// best-effort guess at ESPN's undocumented format and may need a real
+// correction once tested. It also only works when the person has an ESPN
+// account connected (needed for the cookies this request authenticates
+// with), even if their actual leagues are on Sleeper.
+function espnPlayerKey(firstName, lastName, defaultPositionId) {
+  if (defaultPositionId === 16) return (lastName || "").toUpperCase(); // D/ST - match by team name only
+  const initial = firstName ? firstName[0].toUpperCase() : "";
+  return `${initial}.${(lastName || "").toUpperCase()}`;
+}
+
+async function getEspnProjectionPool(espnS2, espnSwid, espnLeagueId, week, year) {
+  if (!espnS2 || !espnSwid || !espnLeagueId) {
+    return { pool: {}, debug: { skipped: true, reason: "no ESPN credentials/league id available" } };
+  }
+  try {
+    const filter = {
+      players: {
+        limit: 600,
+        sortAppliedStatTotal: { sortAsc: false, sortPriority: 1, value: `1${year}` }, // 1 = projected stat source
+        filterStatsForTopScoringPeriodIds: { value: 600 },
+      },
+    };
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${espnLeagueId}?scoringPeriodId=${week}&view=kona_player_info`;
+    const res = await fetch(url, {
+      headers: {
+        Cookie: `SWID=${espnSwid}; espn_s2=${espnS2}`,
+        "x-fantasy-filter": JSON.stringify(filter),
+      },
+    });
+    const rawBody = await res.text();
+    if (!res.ok) {
+      return {
+        pool: {},
+        debug: { error: `ESPN player pool request failed (status ${res.status}): ${rawBody.slice(0, 300)}` },
+      };
+    }
+    let data;
+    try {
+      data = JSON.parse(rawBody);
+    } catch {
+      return { pool: {}, debug: { error: `ESPN player pool returned non-JSON: ${rawBody.slice(0, 300)}` } };
+    }
+    const entries = data.players || [];
+    const pool = {};
+    entries.forEach((entry) => {
+      const player = entry.player;
+      if (!player) return;
+      const key = espnPlayerKey(player.firstName, player.lastName, player.defaultPositionId);
+      const projectedStat = (player.stats || []).find(
+        (s) => s.scoringPeriodId === Number(week) && s.statSourceId === 1
+      );
+      if (projectedStat?.stats) pool[key] = projectedStat.stats;
+    });
+    return {
+      pool,
+      debug: { playersReturned: entries.length, poolSize: Object.keys(pool).length, sampleKeys: Object.keys(pool).slice(0, 8) },
+    };
+  } catch (err) {
+    return { pool: {}, debug: { error: `Threw: ${err.message}` } };
+  }
+}
+
+// Maps ESPN's raw stat-id categories (same ones confirmed/used for real box
+// scores elsewhere in this app) to Sleeper's own scoring-settings key names,
+// so a league's real scoring rules (PPR value, yardage bonuses, etc) get
+// applied to ESPN's projected stats rather than some generic default.
+const ESPN_STAT_TO_SLEEPER_SCORING_KEY = {
+  3: "pass_yd",
+  4: "pass_td",
+  20: "pass_int",
+  24: "rush_yd",
+  25: "rush_td",
+  42: "rec_yd",
+  43: "rec_td",
+  53: "rec",
+};
+
+function computeEspnBasedProjection(rawStats, scoringSettings) {
+  if (!rawStats || !scoringSettings) return null;
+  let total = 0;
+  let matchedAny = false;
+  Object.entries(ESPN_STAT_TO_SLEEPER_SCORING_KEY).forEach(([espnId, sleeperKey]) => {
+    const statValue = rawStats[espnId];
+    const pointValue = scoringSettings[sleeperKey];
+    if (typeof statValue === "number" && typeof pointValue === "number") {
+      total += statValue * pointValue;
+      matchedAny = true;
+    }
+  });
+  return matchedAny ? +total.toFixed(1) : null;
+}
+
+function buildTeam({ roster, matchup, users, playersMap, rosterPositions, weekStats, seasonAverages, getMultiplier, currentWeekPairings, week, espnProjectionPool, scoringSettings }) {
   const owner = users.find((u) => u.user_id === roster.owner_id);
   const teamName = owner?.metadata?.team_name || owner?.display_name || "Unnamed Team";
   const wins = roster.settings?.wins ?? 0;
@@ -339,13 +444,34 @@ function buildTeam({ roster, matchup, users, playersMap, rosterPositions, weekSt
     const realPos = p?.position;
     const pts = +(pointsMap[playerId] || 0).toFixed(1);
     const label = slotLabel(slot);
-    const baseProj = Number(week) === 1 ? pts : seasonAverages[playerId] ?? pts;
-    // Opponent-adjusted on top of the trend-based projection above, when we
+
+    // Try a real external projection first: ESPN's own projected stats for
+    // this player, run through this league's own scoring settings. Falls
+    // back to the trend-based projection (see getSeasonAverages) when
+    // there's no ESPN credential available, or this specific player
+    // couldn't be matched in ESPN's pool.
+    const trendBaseProj = Number(week) === 1 ? pts : seasonAverages[playerId] ?? pts;
+    let baseProj = trendBaseProj;
+    let projSource = "trend";
+    if (p && espnProjectionPool) {
+      const key = espnPlayerKey(p.first_name, p.last_name, p.fantasy_positions?.includes("DEF") ? 16 : undefined);
+      const espnStats = espnProjectionPool[key];
+      const espnProj = computeEspnBasedProjection(espnStats, scoringSettings);
+      if (espnProj !== null) {
+        baseProj = espnProj;
+        projSource = "espn";
+      }
+    }
+
+    // Opponent-adjusted on top of whichever base projection above, when we
     // have enough history and know who this player's team is facing this
     // week - see the notes above getDefenseAdjustments for what this does
-    // and doesn't account for.
+    // and doesn't account for. Skipped when the base projection is already
+    // externally sourced (ESPN's own projection already reflects matchup
+    // context in its own way; stacking our own adjustment on top of theirs
+    // isn't obviously an improvement).
     const opponent = p?.team ? currentWeekPairings[p.team] : null;
-    const multiplier = getMultiplier && opponent && realPos ? getMultiplier(opponent, realPos) : 1;
+    const multiplier = projSource === "trend" && getMultiplier && opponent && realPos ? getMultiplier(opponent, realPos) : 1;
     const proj = +(baseProj * multiplier).toFixed(1);
     const row = {
       pos: label,
@@ -370,15 +496,16 @@ function buildTeam({ roster, matchup, users, playersMap, rosterPositions, weekSt
   return { team: teamName, record, total: +(matchup?.points || 0).toFixed(1), starters, bench };
 }
 
-async function buildOneLeague(leagueMeta, userId, week, playersMap, weekStats) {
+async function buildOneLeague(leagueMeta, userId, week, playersMap, weekStats, espnS2, espnSwid, espnLeagueId) {
   const leagueId = leagueMeta.league_id;
-  const [leagueRes, rostersRes, usersRes, matchupsRes, seasonData, currentWeekPairings] = await Promise.all([
+  const [leagueRes, rostersRes, usersRes, matchupsRes, seasonData, currentWeekPairings, espnProjectionResult] = await Promise.all([
     fetch(`https://api.sleeper.app/v1/league/${leagueId}`),
     fetch(`https://api.sleeper.app/v1/league/${leagueId}/rosters`),
     fetch(`https://api.sleeper.app/v1/league/${leagueId}/users`),
     fetch(`https://api.sleeper.app/v1/league/${leagueId}/matchups/${week}`),
     getSeasonAverages(leagueId, week),
     getWeekPairings(week, SEASON),
+    getEspnProjectionPool(espnS2, espnSwid, espnLeagueId, week, SEASON),
   ]);
   if (!leagueRes.ok || !rostersRes.ok || !usersRes.ok || !matchupsRes.ok) return null;
 
@@ -387,8 +514,10 @@ async function buildOneLeague(leagueMeta, userId, week, playersMap, weekStats) {
   const users = await usersRes.json();
   const matchups = await matchupsRes.json();
   const rosterPositions = league.roster_positions || [];
+  const scoringSettings = league.scoring_settings || {};
   const { averages: seasonAverages, pastWeeksMatchups } = seasonData;
   const getMultiplier = await getDefenseAdjustments(pastWeeksMatchups, playersMap, SEASON);
+  const { pool: espnProjectionPool, debug: espnProjectionDebug } = espnProjectionResult;
 
   const myRoster = rosters.find((r) => r.owner_id === userId);
   if (!myRoster) return null;
@@ -409,6 +538,8 @@ async function buildOneLeague(leagueMeta, userId, week, playersMap, weekStats) {
     getMultiplier,
     currentWeekPairings,
     week,
+    espnProjectionPool: Object.keys(espnProjectionPool).length > 0 ? espnProjectionPool : null,
+    scoringSettings,
   };
   return {
     id: leagueId,
@@ -417,6 +548,10 @@ async function buildOneLeague(leagueMeta, userId, week, playersMap, weekStats) {
     week: Number(week),
     you: buildTeam({ roster: myRoster, matchup: myMatchup, ...buildArgs }),
     opp: buildTeam({ roster: oppRoster, matchup: oppMatchup, ...buildArgs }),
+    // TEMPORARY diagnostic - shows whether the ESPN projection pool loaded
+    // and how many players it found, so a mismatch/failure can be diagnosed
+    // with real numbers instead of guessing at the endpoint shape again.
+    espnProjectionDebug,
   };
 }
 
@@ -424,6 +559,12 @@ export async function GET(request) {
   const { searchParams } = new URL(request.url);
   const username = searchParams.get("username");
   const week = searchParams.get("week");
+  // Optional - when provided (the person also has ESPN connected), enables
+  // real external stat projections instead of this league's own trend-
+  // based fallback. See getEspnProjectionPool for what this does.
+  const espnS2 = searchParams.get("espn_s2");
+  const espnSwid = searchParams.get("espn_swid");
+  const espnLeagueId = searchParams.get("espn_league_id");
 
   if (!username || !week) {
     return Response.json({ error: "Requires ?username=...&week=..." }, { status: 400 });
@@ -450,7 +591,9 @@ export async function GET(request) {
     const weekStats = weekStatsResult.data;
 
     const results = await Promise.all(
-      leagueMetas.map((lm) => buildOneLeague(lm, user.user_id, week, playersMap, weekStats))
+      leagueMetas.map((lm) =>
+        buildOneLeague(lm, user.user_id, week, playersMap, weekStats, espnS2, espnSwid, espnLeagueId)
+      )
     );
 
     return Response.json({
