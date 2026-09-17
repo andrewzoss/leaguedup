@@ -355,7 +355,7 @@ async function getEspnProjectionPool(espnS2, espnSwid, espnLeagueId, week, year)
         filterStatsForTopScoringPeriodIds: { value: 600 },
       },
     };
-    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${espnLeagueId}?scoringPeriodId=${week}&view=kona_player_info`;
+    const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${espnLeagueId}?scoringPeriodId=${week}&view=kona_player_info&view=players_wl`;
     const res = await fetch(url, {
       headers: {
         Cookie: `SWID=${espnSwid}; espn_s2=${espnS2}`,
@@ -369,6 +369,11 @@ async function getEspnProjectionPool(espnS2, espnSwid, espnLeagueId, week, year)
         debug: { error: `ESPN player pool request failed (status ${res.status}): ${rawBody.slice(0, 300)}` },
       };
     }
+    // Blunt but definitive: does a "stats" array show up ANYWHERE in the raw
+    // response text at all, regardless of exactly where in the structure?
+    // If this is false, the view itself isn't returning stat data, no path
+    // fix on our end can conjure data that was never in the response.
+    const rawStatsOccurrences = (rawBody.match(/"stats":\[/g) || []).length;
     let data;
     try {
       data = JSON.parse(rawBody);
@@ -393,16 +398,24 @@ async function getEspnProjectionPool(espnS2, espnSwid, espnLeagueId, week, year)
       else noStatsCount += 1;
     });
     const debug = {
+      rawStatsOccurrences,
       playersReturned: entries.length,
       poolSize: Object.keys(pool).length,
       sampleKeys: Object.keys(pool).slice(0, 8),
       noStatsCount,
     };
     // TEMPORARY: if the pool is still empty despite entries existing, show
-    // the raw shape of the first entry so the actual structure can be seen
-    // directly instead of guessing at it a third time.
+    // where the actual data is - a window around the first real "stats"
+    // occurrence if one exists anywhere in the response, otherwise just the
+    // start of the first entry - so the real structure can be seen directly
+    // instead of guessing at it again.
     if (entries.length > 0 && Object.keys(pool).length === 0) {
-      debug.firstEntrySample = JSON.stringify(entries[0]).slice(0, 800);
+      const statsIndex = rawBody.indexOf('"stats":[');
+      if (statsIndex >= 0) {
+        debug.statsContextSample = rawBody.slice(Math.max(0, statsIndex - 300), statsIndex + 500);
+      } else {
+        debug.firstEntrySample = JSON.stringify(entries[0]).slice(0, 800);
+      }
     }
     return { pool, debug };
   } catch (err) {
