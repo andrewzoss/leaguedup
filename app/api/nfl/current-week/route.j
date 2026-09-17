@@ -3,14 +3,33 @@
 // Figures out the "fantasy current week" using the standard Tuesday-to-
 // Monday convention (new week starts Tuesday, games run Thu-Mon), computed
 // from real game dates rather than trusting ESPN's own "current week"
-// field - that turned out not to follow this same convention (still showed
-// the old week as current on a Wednesday, a day after it should have
-// rolled over for fantasy purposes). Also doesn't need a hardcoded season-
-// start date that would need updating every year: it starts from whatever
-// ESPN calls the current week as a rough anchor, then walks forward using
-// each week's own real earliest-game date until it finds the right one.
+// field - that didn't follow this same convention.
+//
+// Important: game kickoff timestamps come back in UTC, and a Thursday
+// 8:15pm ET game is already past midnight UTC - it gets stamped as Friday
+// in UTC. Doing the "+5 days" rollover math on raw UTC dates silently
+// shifted the whole calculation by close to a day. Fixed by first
+// converting every date to its real Eastern-Time calendar day before doing
+// any day-of-week math, since that's the timezone the NFL week actually
+// runs on.
 //
 // Returns: { week, year }
+
+function toEasternDateOnly(date) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(date);
+  const y = parts.find((p) => p.type === "year").value;
+  const m = parts.find((p) => p.type === "month").value;
+  const d = parts.find((p) => p.type === "day").value;
+  // Treated as UTC midnight purely so date-only arithmetic (adding days,
+  // comparing) is unambiguous - the actual time-of-day doesn't matter once
+  // we only care about which Eastern calendar day something falls on.
+  return new Date(`${y}-${m}-${d}T00:00:00Z`);
+}
 
 async function getWeekEarliestKickoff(week, year) {
   const res = await fetch(
@@ -20,16 +39,14 @@ async function getWeekEarliestKickoff(week, year) {
   const data = await res.json();
   const dates = (data.events || []).map((e) => new Date(e.date).getTime()).filter(Boolean);
   if (dates.length === 0) return null;
-  return new Date(Math.min(...dates));
+  return toEasternDateOnly(new Date(Math.min(...dates)));
 }
 
 // The point at which a week's games are considered "over" for fantasy
 // purposes and the next week takes over: the Tuesday following that week's
-// earliest game (Thursday night), i.e. 5 days later, at NFL's usual early-
-// morning rollover time (using midnight Eastern is close enough - being off
-// by a few hours right at the boundary doesn't matter here).
-function tuesdayRolloverFrom(earliestKickoff) {
-  const rollover = new Date(earliestKickoff.getTime());
+// earliest game (Thursday), i.e. 5 Eastern calendar days later.
+function tuesdayRolloverFrom(earliestKickoffEastern) {
+  const rollover = new Date(earliestKickoffEastern.getTime());
   rollover.setUTCDate(rollover.getUTCDate() + 5);
   return rollover;
 }
@@ -52,22 +69,30 @@ export async function GET() {
       );
     }
 
-    const now = new Date();
+    const todayEastern = toEasternDateOnly(new Date());
+    // TEMPORARY diagnostic - shows exactly what dates this computed, so if
+    // the result still looks wrong we have real numbers instead of another
+    // guess. Safe to remove once this is confirmed working.
+    const debug = { espnSeedWeek: week, todayEastern: todayEastern.toISOString(), steps: [] };
 
-    // Walk forward: if the week ESPN handed us has already passed its
-    // Tuesday rollover point, advance to the next week and check again.
-    // Bounded to a handful of iterations - this should only ever need to
-    // move forward by one, this just guards against ESPN's field being off
-    // by more than that for some reason.
     for (let i = 0; i < 4; i++) {
       const earliest = await getWeekEarliestKickoff(week, year);
-      if (!earliest) break; // no games found for this week (bye/offseason edge case) - stop adjusting
+      if (!earliest) {
+        debug.steps.push({ week, earliest: null, note: "no games found - stopped adjusting" });
+        break;
+      }
       const rollover = tuesdayRolloverFrom(earliest);
-      if (now < rollover) break; // this week hasn't rolled over yet - this is the right week
+      debug.steps.push({
+        week,
+        earliestEastern: earliest.toISOString(),
+        rolloverEastern: rollover.toISOString(),
+        rolledOver: todayEastern >= rollover,
+      });
+      if (todayEastern < rollover) break;
       week += 1;
     }
 
-    return Response.json({ week, year });
+    return Response.json({ week, year, debug });
   } catch (err) {
     return Response.json(
       { error: "Something went wrong determining the current week" },
