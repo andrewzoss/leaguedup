@@ -2213,7 +2213,19 @@ export default function LeaguedUpApp() {
     let cancelled = false;
     setSleeperLeagues(null);
     setSleeperError(null);
-    fetch(`/api/sleeper/all?username=${sleeperUsername}&week=${selectedWeek}`)
+    // When ESPN is also connected, pass its cookies + one of the person's
+    // ESPN league ids along too - enables real external stat projections
+    // for Sleeper leagues (see getEspnProjectionPool in that route) instead
+    // of just this league's own trend-based fallback. Any one of their
+    // ESPN leagues works fine here, it's only used to authenticate/scope
+    // the projection request, not tied to a specific league's own scoring.
+    const espnParams =
+      espnCookies && espnLeagueIds[0]
+        ? `&espn_s2=${encodeURIComponent(espnCookies.s2)}&espn_swid=${encodeURIComponent(
+            espnCookies.swid
+          )}&espn_league_id=${espnLeagueIds[0]}`
+        : "";
+    fetch(`/api/sleeper/all?username=${sleeperUsername}&week=${selectedWeek}${espnParams}`)
       .then((res) => res.json())
       .then((data) => {
         if (cancelled) return;
@@ -2226,7 +2238,7 @@ export default function LeaguedUpApp() {
     return () => {
       cancelled = true;
     };
-  }, [selectedWeek, sleeperUsername, retryCount]);
+  }, [selectedWeek, sleeperUsername, retryCount, espnCookies, espnLeagueIds]);
 
   // Real ESPN data, one league at a time (ESPN has no "give me every league"
   // endpoint like Sleeper does, each league id is fetched separately).
