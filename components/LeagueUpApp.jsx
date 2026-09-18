@@ -834,7 +834,15 @@ function applyGuillotineOpponent(league) {
   if (!league.allTeams || league.allTeams.length === 0) return league;
   const others = league.allTeams.filter((t) => !isSameTeam(t, league.you));
   if (others.length === 0) return league;
-  const lowest = others.reduce((min, t) => (t.total < min.total ? t : min), others[0]);
+  const lowest = others.reduce((min, t) => {
+    if (t.total < min.total) return t;
+    if (t.total === min.total) {
+      // Tied on actual score - break the tie toward whoever's projected
+      // lower, since that's the one more likely to actually end up last.
+      return computeProjectedTotal(t) < computeProjectedTotal(min) ? t : min;
+    }
+    return min;
+  }, others[0]);
   return { ...league, opp: lowest };
 }
 
@@ -910,7 +918,7 @@ function LeagueColumn({ league, onSelectPlayer, showProjected, colIndex }) {
       <div className="fd-col-head" style={{ gridColumn: col, gridRow: 1 }}>
         <span
           className="fd-plat-tag"
-          style={{ backgroundColor: PLATFORM_COLORS[league.platform] }}
+          style={{ backgroundColor: league.tagColor || PLATFORM_COLORS[league.platform] }}
         >
           {PLATFORM_LABEL[league.platform]}
         </span>
@@ -1293,10 +1301,11 @@ function HelpMeRootScreen({ leaguesData }) {
 
 const REORDER_ROW_H = 40;
 
-function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRename, isGuillotine, onToggleGuillotine }) {
+function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRename, isGuillotine, onToggleGuillotine, onSetTagColor }) {
   const isDragging = dragState.id === league.id;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(league.name);
+  const tagColor = league.tagColor || PLATFORM_COLORS[league.platform];
 
   function commitRename() {
     onRename(league.id, draft);
@@ -1313,9 +1322,21 @@ function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRenam
       }}
     >
       <GripVertical size={14} color={C.grey} style={{ flexShrink: 0 }} />
-      <span className="fd-plat-tag" style={{ backgroundColor: PLATFORM_COLORS[league.platform] }}>
+      <label
+        className="fd-plat-tag"
+        style={{ backgroundColor: tagColor, position: "relative", cursor: "pointer" }}
+        onPointerDown={(e) => e.stopPropagation()}
+        title="Tap to pick a color for this league's tag"
+      >
         {PLATFORM_LABEL[league.platform]}
-      </span>
+        <input
+          type="color"
+          value={tagColor}
+          onChange={(e) => onSetTagColor(league.id, e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, border: "none", padding: 0, cursor: "pointer" }}
+        />
+      </label>
       {editing ? (
         <input
           autoFocus
@@ -1395,7 +1416,7 @@ function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRenam
   );
 }
 
-function ReorderList({ order, leaguesData, onReorder, onRemove, onRename, guillotineIds, onToggleGuillotine }) {
+function ReorderList({ order, leaguesData, onReorder, onRemove, onRename, guillotineIds, onToggleGuillotine, onSetTagColor }) {
   const [dragState, setDragState] = useState({ id: null, startIndex: 0, dy: 0, startY: 0 });
   const items = order.map((id) => leaguesData.find((l) => l.id === id)).filter(Boolean);
 
@@ -1445,6 +1466,7 @@ function ReorderList({ order, leaguesData, onReorder, onRemove, onRename, guillo
           onRename={onRename}
           isGuillotine={guillotineIds.includes(league.id)}
           onToggleGuillotine={onToggleGuillotine}
+          onSetTagColor={onSetTagColor}
         />
       ))}
     </div>
@@ -1464,13 +1486,28 @@ const inputStyle = {
   outline: "none",
 };
 
-function PlatformBox({ label, color, children }) {
+function PlatformBox({ label, color, badge, children }) {
   return (
     <div style={{ border: `1px solid ${C.line}`, backgroundColor: C.panel, padding: 16 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 12 }}>
         <span className="fd-display" style={{ fontSize: 12, color }}>
           {label}
         </span>
+        {badge && (
+          <span
+            className="fd-body"
+            style={{
+              fontSize: 9,
+              fontWeight: 700,
+              letterSpacing: 0.5,
+              color: C.bg,
+              backgroundColor: C.grey,
+              padding: "2px 6px",
+            }}
+          >
+            {badge}
+          </span>
+        )}
         <div style={{ flex: 1, height: 1, backgroundColor: C.line }} />
       </div>
       {children}
@@ -1526,6 +1563,7 @@ function SetupScreen({
   selectedWeek,
   guillotineIds,
   onToggleGuillotine,
+  onSetTagColor,
 }) {
   const [usernameDraft, setUsernameDraft] = useState(sleeperUsername || "");
   const [espnLeagueIdDraft, setEspnLeagueIdDraft] = useState("");
@@ -1587,6 +1625,7 @@ function SetupScreen({
           onRename={onRenameLeague}
           guillotineIds={guillotineIds}
           onToggleGuillotine={onToggleGuillotine}
+          onSetTagColor={onSetTagColor}
         />
         <p className="fd-body" style={{ fontSize: 11, color: C.grey, margin: "8px 0 0" }}>
           Tap <strong style={{ color: C.gold }}>G</strong> on a league to mark it as a guillotine
@@ -1843,8 +1882,9 @@ function SetupScreen({
           )}
         </PlatformBox>
 
-        <PlatformBox label="ADD YAHOO LEAGUE" color={PLATFORM_COLORS.yahoo}>
+        <PlatformBox label="ADD YAHOO LEAGUE" color={PLATFORM_COLORS.yahoo} badge="COMING SOON">
           <button
+            disabled
             className="fd-body"
             style={{
               width: "100%",
@@ -1852,10 +1892,10 @@ function SetupScreen({
               fontSize: 12,
               fontWeight: 700,
               letterSpacing: 1,
-              color: C.bg,
-              backgroundColor: C.white,
-              border: "none",
-              cursor: "pointer",
+              color: C.grey,
+              backgroundColor: "transparent",
+              border: `1px solid ${C.line}`,
+              cursor: "not-allowed",
             }}
           >
             CONNECT WITH YAHOO
@@ -2129,6 +2169,7 @@ const LS_KEYS = {
   nameOverrides: "leagueup_league_name_overrides",
   perPage: "leagueup_leagues_per_page",
   guillotineIds: "leagueup_guillotine_league_ids",
+  tagColors: "leagueup_league_tag_colors",
 };
 
 export default function LeaguedUpApp() {
@@ -2169,6 +2210,7 @@ export default function LeaguedUpApp() {
   const [leagueOrder, setLeagueOrder] = useState(leagues.map((l) => l.id));
   const [leagueNameOverrides, setLeagueNameOverrides] = useState({}); // league id -> custom display name
   const [guillotineIds, setGuillotineIds] = useState([]); // league ids flagged as guillotine-style
+  const [leagueTagColors, setLeagueTagColors] = useState({}); // league id -> custom tag hex color
   const [leaguesPerPage, setLeaguesPerPageState] = useState(2);
 
   // Picks up cookies handed off by the ESPN bookmarklet (see the bookmarklet
@@ -2204,12 +2246,14 @@ export default function LeaguedUpApp() {
       const savedNameOverrides = JSON.parse(localStorage.getItem(LS_KEYS.nameOverrides) || "null");
       const savedPerPage = Number(localStorage.getItem(LS_KEYS.perPage));
       const savedGuillotineIds = JSON.parse(localStorage.getItem(LS_KEYS.guillotineIds) || "null");
+      const savedTagColors = JSON.parse(localStorage.getItem(LS_KEYS.tagColors) || "null");
       if (savedUsername) setSleeperUsernameState(savedUsername);
       if (savedEspnS2 && savedEspnSwid) setEspnCookiesState({ s2: savedEspnS2, swid: savedEspnSwid });
       if (savedEspnLeagueIds) setEspnLeagueIdsState(savedEspnLeagueIds);
       if (savedNameOverrides) setLeagueNameOverrides(savedNameOverrides);
       if ([2, 3, 4].includes(savedPerPage)) setLeaguesPerPageState(savedPerPage);
       if (savedGuillotineIds) setGuillotineIds(savedGuillotineIds);
+      if (savedTagColors) setLeagueTagColors(savedTagColors);
       if (!savedUsername && !(savedEspnS2 && savedEspnSwid)) {
         setScreen("setup"); // no leagues connected yet - start on Add Leagues, not an empty Scoreboard
       }
@@ -2219,6 +2263,16 @@ export default function LeaguedUpApp() {
       setScreen("setup"); // localStorage unavailable - safest to just let them add leagues
     }
   }, []);
+
+  function setLeagueTagColor(id, color) {
+    setLeagueTagColors((prev) => {
+      const next = { ...prev, [id]: color };
+      try {
+        localStorage.setItem(LS_KEYS.tagColors, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  }
 
   function setLeaguesPerPage(n) {
     setLeaguesPerPageState(n);
@@ -2415,12 +2469,14 @@ export default function LeaguedUpApp() {
   // Sleeper + ESPN combined. No silent mock fallback anymore - leagues that
   // haven't loaded or failed just aren't in this list, that's a real
   // "not connected" state, not a fake demo of leagues that aren't yours.
-  // Name overrides applied right here, at the source, so every screen that
-  // reads league.name (Scoreboard, Help Me Root, the reorder list) sees the
-  // renamed value automatically.
-  const allRealLeagues = [...(sleeperLeagues || []), ...espnLeagues].map((l) =>
-    leagueNameOverrides[l.id] ? { ...l, name: leagueNameOverrides[l.id] } : l
-  );
+  // Name and tag-color overrides applied right here, at the source, so
+  // every screen that reads league.name/tagColor (Scoreboard, Help Me
+  // Root, the reorder list) sees the customized value automatically.
+  const allRealLeagues = [...(sleeperLeagues || []), ...espnLeagues].map((l) => ({
+    ...l,
+    ...(leagueNameOverrides[l.id] ? { name: leagueNameOverrides[l.id] } : null),
+    ...(leagueTagColors[l.id] ? { tagColor: leagueTagColors[l.id] } : null),
+  }));
   const activeLeagues = allRealLeagues.filter((l) => !removedIds.includes(l.id));
   const activeIdsKey = activeLeagues.map((l) => l.id).join(",");
 
@@ -2606,6 +2662,7 @@ export default function LeaguedUpApp() {
           selectedWeek={selectedWeek}
           guillotineIds={guillotineIds}
           onToggleGuillotine={toggleGuillotine}
+          onSetTagColor={setLeagueTagColor}
         />
       ) : (
         <LiveScreen
