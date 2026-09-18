@@ -1123,7 +1123,7 @@ function RootRow({ group, tone }) {
         <span key={i} className="fd-root-tag">
           <span
             className="fd-root-league"
-            style={{ backgroundColor: PLATFORM_COLORS[e.league.platform] }}
+            style={{ backgroundColor: e.league.tagColor || PLATFORM_COLORS[e.league.platform] }}
           >
             {e.league.name}
           </span>
@@ -1148,7 +1148,7 @@ function ConflictEntry({ c }) {
             <span className="fd-root-dot" style={{ backgroundColor: C.green }} />
             <span
               className="fd-root-league"
-              style={{ backgroundColor: PLATFORM_COLORS[p.league.platform] }}
+              style={{ backgroundColor: p.league.tagColor || PLATFORM_COLORS[p.league.platform] }}
             >
               {p.league.name}
             </span>
@@ -1161,7 +1161,7 @@ function ConflictEntry({ c }) {
             <span className="fd-root-dot" style={{ backgroundColor: C.red }} />
             <span
               className="fd-root-league"
-              style={{ backgroundColor: PLATFORM_COLORS[p.league.platform] }}
+              style={{ backgroundColor: p.league.tagColor || PLATFORM_COLORS[p.league.platform] }}
             >
               {p.league.name}
             </span>
@@ -1322,21 +1322,9 @@ function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRenam
       }}
     >
       <GripVertical size={14} color={C.grey} style={{ flexShrink: 0 }} />
-      <label
-        className="fd-plat-tag"
-        style={{ backgroundColor: tagColor, position: "relative", cursor: "pointer" }}
-        onPointerDown={(e) => e.stopPropagation()}
-        title="Tap to pick a color for this league's tag"
-      >
+      <span className="fd-plat-tag" style={{ backgroundColor: tagColor }}>
         {PLATFORM_LABEL[league.platform]}
-        <input
-          type="color"
-          value={tagColor}
-          onChange={(e) => onSetTagColor(league.id, e.target.value)}
-          onClick={(e) => e.stopPropagation()}
-          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, border: "none", padding: 0, cursor: "pointer" }}
-        />
-      </label>
+      </span>
       {editing ? (
         <input
           autoFocus
@@ -1377,6 +1365,32 @@ function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRenam
           {league.name}
         </span>
       )}
+      <label
+        className="fd-display"
+        onPointerDown={(e) => e.stopPropagation()}
+        title="Pick a color for this league's tag"
+        aria-label={`Pick a tag color for ${league.name}`}
+        style={{
+          width: 20,
+          height: 20,
+          fontSize: 11,
+          lineHeight: "18px",
+          textAlign: "center",
+          flexShrink: 0,
+          position: "relative",
+          border: `1px solid ${C.line}`,
+          cursor: "pointer",
+        }}
+      >
+        🎨
+        <input
+          type="color"
+          value={tagColor}
+          onChange={(e) => onSetTagColor(league.id, e.target.value)}
+          onClick={(e) => e.stopPropagation()}
+          style={{ position: "absolute", inset: 0, width: "100%", height: "100%", opacity: 0, border: "none", padding: 0, cursor: "pointer" }}
+        />
+      </label>
       <button
         onClick={(e) => {
           e.stopPropagation();
