@@ -1746,6 +1746,14 @@ function SetupScreen({
                   className="fd-body"
                   value={espnLeagueIdDraft}
                   onChange={(e) => setEspnLeagueIdDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key !== "Enter") return;
+                    const id = espnLeagueIdDraft.trim();
+                    if (id) {
+                      onAddEspnLeagueId(id);
+                      setEspnLeagueIdDraft("");
+                    }
+                  }}
                   placeholder="ESPN League ID"
                   style={inputStyle}
                 />
