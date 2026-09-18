@@ -353,6 +353,15 @@ async function getEspnProjectionPool(espnS2, espnSwid, espnLeagueId, week, year)
         limit: 600,
         sortAppliedStatTotal: { sortAsc: false, sortPriority: 1, value: `1${year}` }, // 1 = projected stat source
         filterStatsForTopScoringPeriodIds: { value: 600 },
+        // The two additions below are the actual attempt at fixing this:
+        // filterStatsForSourceIds tells ESPN which stat sources to bother
+        // populating at all (0 = actual, 1 = projected) - without it, the
+        // stats array came back empty for every player even though the
+        // field itself exists. filterStatsForSplitTypeIds asks for the
+        // per-week split (0) rather than a season-long aggregate, to match
+        // scoringPeriodId-based lookups used everywhere else in this app.
+        filterStatsForSourceIds: { value: [0, 1] },
+        filterStatsForSplitTypeIds: { value: [0] },
       },
     };
     const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${espnLeagueId}?scoringPeriodId=${week}&view=kona_player_info&view=players_wl`;
@@ -569,13 +578,24 @@ async function buildOneLeague(leagueMeta, userId, week, playersMap, weekStats, e
     espnProjectionPool: Object.keys(espnProjectionPool).length > 0 ? espnProjectionPool : null,
     scoringSettings,
   };
+  // Every roster in the league, fully built - not just mine and my assigned
+  // opponent. Only needed for guillotine-style leagues (where what matters
+  // is your standing against the whole league's low score, not a fixed
+  // head-to-head pairing), but cheap enough to always include since we
+  // already have all of this data in hand from the fetches above.
+  const allTeams = rosters.map((r) => {
+    const m = matchups.find((mu) => mu.roster_id === r.roster_id);
+    return { rosterId: r.roster_id, ...buildTeam({ roster: r, matchup: m, ...buildArgs }) };
+  });
+
   return {
     id: leagueId,
     platform: "sleeper",
     name: league.name,
     week: Number(week),
-    you: buildTeam({ roster: myRoster, matchup: myMatchup, ...buildArgs }),
-    opp: buildTeam({ roster: oppRoster, matchup: oppMatchup, ...buildArgs }),
+    you: { rosterId: myRoster.roster_id, ...buildTeam({ roster: myRoster, matchup: myMatchup, ...buildArgs }) },
+    opp: { rosterId: oppRoster.roster_id, ...buildTeam({ roster: oppRoster, matchup: oppMatchup, ...buildArgs }) },
+    allTeams,
     // TEMPORARY diagnostic - shows whether the ESPN projection pool loaded
     // and how many players it found, so a mismatch/failure can be diagnosed
     // with real numbers instead of guessing at the endpoint shape again.
