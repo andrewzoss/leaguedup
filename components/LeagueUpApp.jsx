@@ -814,6 +814,30 @@ function computeProjectedTotal(team) {
   return team.starters.reduce((sum, p) => sum + p.proj, 0);
 }
 
+// Identifies "the same team" across the two identifier shapes the two
+// platforms use (Sleeper's rosterId, ESPN's teamId) - whichever one is
+// present on both sides gets compared, the other is just undefined on both
+// and the check falls through safely.
+function isSameTeam(a, b) {
+  if (a.rosterId !== undefined && b.rosterId !== undefined) return a.rosterId === b.rosterId;
+  if (a.teamId !== undefined && b.teamId !== undefined) return a.teamId === b.teamId;
+  return false;
+}
+
+// For a guillotine-style league, "the opponent" isn't your real assigned
+// matchup - it's whichever other team in the league currently has the
+// lowest score, since that's the team actually at risk of elimination this
+// week. Recomputed on every render from whatever live totals have already
+// been fetched, so it moves in real time as scores update, same as
+// everything else on the Scoreboard.
+function applyGuillotineOpponent(league) {
+  if (!league.allTeams || league.allTeams.length === 0) return league;
+  const others = league.allTeams.filter((t) => !isSameTeam(t, league.you));
+  if (others.length === 0) return league;
+  const lowest = others.reduce((min, t) => (t.total < min.total ? t : min), others[0]);
+  return { ...league, opp: lowest };
+}
+
 function TeamCard({ team, isYou, isWinning, isProjWinning, onSelectPlayer, gridColumn, gridRow, showProjected }) {
   const [benchOpen, setBenchOpen] = useState(false);
   const projectedTotal = computeProjectedTotal(team);
@@ -1269,7 +1293,7 @@ function HelpMeRootScreen({ leaguesData }) {
 
 const REORDER_ROW_H = 40;
 
-function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRename }) {
+function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRename, isGuillotine, onToggleGuillotine }) {
   const isDragging = dragState.id === league.id;
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(league.name);
@@ -1333,6 +1357,30 @@ function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRenam
         </span>
       )}
       <button
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleGuillotine(league.id);
+        }}
+        onPointerDown={(e) => e.stopPropagation()}
+        aria-label={`${isGuillotine ? "Turn off" : "Turn on"} guillotine mode for ${league.name}`}
+        title="Guillotine league"
+        className="fd-display"
+        style={{
+          width: 20,
+          height: 20,
+          fontSize: 10,
+          fontWeight: 700,
+          lineHeight: 1,
+          flexShrink: 0,
+          color: isGuillotine ? C.bg : C.grey,
+          backgroundColor: isGuillotine ? C.gold : "transparent",
+          border: `1px solid ${isGuillotine ? C.gold : C.line}`,
+          cursor: "pointer",
+        }}
+      >
+        G
+      </button>
+      <button
         className="fd-reorder-remove"
         onClick={(e) => {
           e.stopPropagation();
@@ -1347,7 +1395,7 @@ function ReorderRow({ league, index, dragState, onPointerDown, onRemove, onRenam
   );
 }
 
-function ReorderList({ order, leaguesData, onReorder, onRemove, onRename }) {
+function ReorderList({ order, leaguesData, onReorder, onRemove, onRename, guillotineIds, onToggleGuillotine }) {
   const [dragState, setDragState] = useState({ id: null, startIndex: 0, dy: 0, startY: 0 });
   const items = order.map((id) => leaguesData.find((l) => l.id === id)).filter(Boolean);
 
@@ -1395,6 +1443,8 @@ function ReorderList({ order, leaguesData, onReorder, onRemove, onRename }) {
           onPointerDown={handlePointerDown}
           onRemove={onRemove}
           onRename={onRename}
+          isGuillotine={guillotineIds.includes(league.id)}
+          onToggleGuillotine={onToggleGuillotine}
         />
       ))}
     </div>
@@ -1474,6 +1524,8 @@ function SetupScreen({
   onAddEspnLeagueId,
   onRemoveEspnLeagueId,
   selectedWeek,
+  guillotineIds,
+  onToggleGuillotine,
 }) {
   const [usernameDraft, setUsernameDraft] = useState(sleeperUsername || "");
   const [espnLeagueIdDraft, setEspnLeagueIdDraft] = useState("");
@@ -1533,7 +1585,15 @@ function SetupScreen({
           onReorder={onReorderLeagues}
           onRemove={onRemoveLeague}
           onRename={onRenameLeague}
+          guillotineIds={guillotineIds}
+          onToggleGuillotine={onToggleGuillotine}
         />
+        <p className="fd-body" style={{ fontSize: 11, color: C.grey, margin: "8px 0 0" }}>
+          Tap <strong style={{ color: C.gold }}>G</strong> on a league to mark it as a guillotine
+          format, that league's Scoreboard card will then show you against
+          whoever's currently in last place in the whole league, instead of
+          your assigned head-to-head matchup.
+        </p>
       </div>
 
       <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
@@ -2068,6 +2128,7 @@ const LS_KEYS = {
   espnLeagueIds: "leagueup_espn_league_ids",
   nameOverrides: "leagueup_league_name_overrides",
   perPage: "leagueup_leagues_per_page",
+  guillotineIds: "leagueup_guillotine_league_ids",
 };
 
 export default function LeaguedUpApp() {
@@ -2107,6 +2168,7 @@ export default function LeaguedUpApp() {
   const [removedIds, setRemovedIds] = useState([]);
   const [leagueOrder, setLeagueOrder] = useState(leagues.map((l) => l.id));
   const [leagueNameOverrides, setLeagueNameOverrides] = useState({}); // league id -> custom display name
+  const [guillotineIds, setGuillotineIds] = useState([]); // league ids flagged as guillotine-style
   const [leaguesPerPage, setLeaguesPerPageState] = useState(2);
 
   // Picks up cookies handed off by the ESPN bookmarklet (see the bookmarklet
@@ -2141,11 +2203,13 @@ export default function LeaguedUpApp() {
       const savedEspnLeagueIds = JSON.parse(localStorage.getItem(LS_KEYS.espnLeagueIds) || "null");
       const savedNameOverrides = JSON.parse(localStorage.getItem(LS_KEYS.nameOverrides) || "null");
       const savedPerPage = Number(localStorage.getItem(LS_KEYS.perPage));
+      const savedGuillotineIds = JSON.parse(localStorage.getItem(LS_KEYS.guillotineIds) || "null");
       if (savedUsername) setSleeperUsernameState(savedUsername);
       if (savedEspnS2 && savedEspnSwid) setEspnCookiesState({ s2: savedEspnS2, swid: savedEspnSwid });
       if (savedEspnLeagueIds) setEspnLeagueIdsState(savedEspnLeagueIds);
       if (savedNameOverrides) setLeagueNameOverrides(savedNameOverrides);
       if ([2, 3, 4].includes(savedPerPage)) setLeaguesPerPageState(savedPerPage);
+      if (savedGuillotineIds) setGuillotineIds(savedGuillotineIds);
       if (!savedUsername && !(savedEspnS2 && savedEspnSwid)) {
         setScreen("setup"); // no leagues connected yet - start on Add Leagues, not an empty Scoreboard
       }
@@ -2161,6 +2225,16 @@ export default function LeaguedUpApp() {
     try {
       localStorage.setItem(LS_KEYS.perPage, String(n));
     } catch {}
+  }
+
+  function toggleGuillotine(id) {
+    setGuillotineIds((prev) => {
+      const next = prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id];
+      try {
+        localStorage.setItem(LS_KEYS.guillotineIds, JSON.stringify(next));
+      } catch {}
+      return next;
+    });
   }
 
   function renameLeague(id, newName) {
@@ -2372,13 +2446,16 @@ export default function LeaguedUpApp() {
   // same corrected data instead of each platform's rough points>0 guess.
   const syncedLeagues = React.useMemo(
     () =>
-      orderedLeagues.map((l) => ({
-        ...l,
-        you: syncTeamStatusWithSchedule(l.you),
-        opp: syncTeamStatusWithSchedule(l.opp),
-      })),
+      orderedLeagues.map((l) => {
+        const league = guillotineIds.includes(l.id) ? applyGuillotineOpponent(l) : l;
+        return {
+          ...league,
+          you: syncTeamStatusWithSchedule(league.you),
+          opp: syncTeamStatusWithSchedule(league.opp),
+        };
+      }),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [orderedLeagues, scheduleVersion]
+    [orderedLeagues, scheduleVersion, guillotineIds]
   );
 
   // Whether the real current week's games have actually kicked off yet -
@@ -2527,6 +2604,8 @@ export default function LeaguedUpApp() {
           onAddEspnLeagueId={addEspnLeagueId}
           onRemoveEspnLeagueId={removeEspnLeagueId}
           selectedWeek={selectedWeek}
+          guillotineIds={guillotineIds}
+          onToggleGuillotine={toggleGuillotine}
         />
       ) : (
         <LiveScreen
