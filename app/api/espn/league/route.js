@@ -252,8 +252,15 @@ export async function GET(request) {
       platform: "espn",
       name: data.settings?.name || `ESPN League ${leagueId}`,
       week: Number(week),
-      you: buildTeam(myTeam, week),
-      opp: buildTeam(oppTeam, week),
+      you: { teamId: myTeam.id, ...buildTeam(myTeam, week) },
+      opp: { teamId: oppTeam.id, ...buildTeam(oppTeam, week) },
+      // Every team in the league, fully built - not just mine and my
+      // assigned opponent. Only needed for guillotine-style leagues (where
+      // what matters is your standing against the whole league's low
+      // score, not a fixed head-to-head pairing), but cheap enough to
+      // always include since we already have every team's data in hand
+      // from the single league fetch above.
+      allTeams: teams.map((t) => ({ teamId: t.id, ...buildTeam(t, week) })),
     });
   } catch (err) {
     return Response.json(
