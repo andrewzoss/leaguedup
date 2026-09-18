@@ -2201,6 +2201,12 @@ export default function LeaguedUpApp() {
       } catch {}
       return next;
     });
+    // Tapping Add is an explicit "I want this one visible" action, so it
+    // also un-hides the league if it had previously been removed - this
+    // runs regardless of whether the id was already in the list above,
+    // since a league that's already added but was later removed would
+    // otherwise stay invisible forever with no error and no way back in.
+    setRemovedIds((prev) => prev.filter((rid) => rid !== `espn-${id}`));
   }
   function removeEspnLeagueId(id) {
     setEspnLeagueIdsState((prev) => {
