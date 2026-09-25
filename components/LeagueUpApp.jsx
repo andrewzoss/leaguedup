@@ -713,6 +713,25 @@ function getGameFraction(p) {
   return Math.min(1, Math.max(0, elapsedMinutes / 60));
 }
 
+// Neither platform gives us a projection that actually updates as a game
+// plays out - ESPN's is a fixed pre-game number, Sleeper has none at all.
+// Rather than show a number that just sits there while the score moves,
+// this computes our own live projection: extrapolate the player's current
+// scoring rate out to a full game, then blend that with their original
+// pre-game projection - mostly the pre-game number early on (a rate from
+// two minutes of play means nothing), shifting toward the extrapolated
+// pace as the game goes on, landing exactly on their actual score once
+// the game's over. This is what makes the displayed number genuinely move
+// during a live game instead of being frozen at kickoff's estimate.
+function getLiveAdjustedProj(p) {
+  if (p.status !== "live") return p.proj;
+  const fraction = getGameFraction(p);
+  if (fraction === null || fraction <= 0) return p.proj;
+  const impliedFullGamePace = p.pts / fraction;
+  const blended = (1 - fraction) * p.proj + fraction * impliedFullGamePace;
+  return +blended.toFixed(1);
+}
+
 // Pace-adjusted target: "at this point in the game, a player on track to
 // hit their projection would have this many points." Early in a game this
 // is intentionally not held to the full projection - a WR with 0 points
@@ -795,6 +814,7 @@ function gameLine(p) {
 
 function StarterRow({ p, onSelect, showGame }) {
   const ptsClass = getPtsClass(p);
+  const displayProj = getLiveAdjustedProj(p);
   return (
     <div className={`fd-row ${showGame ? "fd-row-tall" : ""}`} onClick={() => onSelect(p)}>
       <div className="fd-row-main">
@@ -802,7 +822,7 @@ function StarterRow({ p, onSelect, showGame }) {
         <span className="fd-name fd-body">{p.name}</span>
         <span className="fd-pts-wrap">
           <span className={`fd-pts fd-body ${ptsClass}`}>{p.pts.toFixed(1)}</span>
-          <span className="fd-proj-mini fd-body">({p.proj.toFixed(1)})</span>
+          <span className="fd-proj-mini fd-body">({displayProj.toFixed(1)})</span>
         </span>
       </div>
       {showGame && <span className="fd-row-game fd-body">{gameLine(p)}</span>}
@@ -811,7 +831,7 @@ function StarterRow({ p, onSelect, showGame }) {
 }
 
 function computeProjectedTotal(team) {
-  return team.starters.reduce((sum, p) => sum + p.proj, 0);
+  return team.starters.reduce((sum, p) => sum + getLiveAdjustedProj(p), 0);
 }
 
 // Identifies "the same team" across the two identifier shapes the two
@@ -1033,7 +1053,7 @@ function PlayerModal({ player, onClose }) {
           <div>
             <span className="fd-modal-label fd-body">PROJECTED</span>
             <span className="fd-modal-pts fd-display" style={{ color: C.grey }}>
-              {player.proj.toFixed(1)}
+              {getLiveAdjustedProj(player).toFixed(1)}
             </span>
           </div>
         </div>
