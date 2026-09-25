@@ -348,20 +348,25 @@ async function getEspnProjectionPool(espnS2, espnSwid, espnLeagueId, week, year)
     return { pool: {}, debug: { skipped: true, reason: "no ESPN credentials/league id available" } };
   }
   try {
+    // Third attempt at this filter, based on a more specific recollection
+    // of how ESPN actually gates which stat blocks get included: rather
+    // than separate "source"/"split" filter fields (which didn't work),
+    // it's coded strings like "022026"/"102026" passed as additionalValue
+    // on the scoring-period filter - first digit is stat source (0=actual,
+    // 1=projected), second is split type (0=season total, 2=this specific
+    // scoring period), followed by the season year. Including several
+    // plausible codes at once (actual+projected, season+this-week) since
+    // I'm not fully certain which exact one ESPN needs - harmless if some
+    // are ignored, and this is a meaningfully different mechanism than the
+    // last two attempts, not just a variation on the same guess.
     const filter = {
       players: {
         limit: 600,
-        sortAppliedStatTotal: { sortAsc: false, sortPriority: 1, value: `1${year}` }, // 1 = projected stat source
-        filterStatsForTopScoringPeriodIds: { value: 600 },
-        // The two additions below are the actual attempt at fixing this:
-        // filterStatsForSourceIds tells ESPN which stat sources to bother
-        // populating at all (0 = actual, 1 = projected) - without it, the
-        // stats array came back empty for every player even though the
-        // field itself exists. filterStatsForSplitTypeIds asks for the
-        // per-week split (0) rather than a season-long aggregate, to match
-        // scoringPeriodId-based lookups used everywhere else in this app.
-        filterStatsForSourceIds: { value: [0, 1] },
-        filterStatsForSplitTypeIds: { value: [0] },
+        sortAppliedStatTotal: { sortAsc: false, sortPriority: 1, value: `1${year}` },
+        filterStatsForTopScoringPeriodIds: {
+          value: Number(week),
+          additionalValue: [`00${year}`, `02${year}`, `10${year}`, `12${year}`],
+        },
       },
     };
     const url = `https://lm-api-reads.fantasy.espn.com/apis/v3/games/ffl/seasons/${year}/segments/0/leagues/${espnLeagueId}?scoringPeriodId=${week}&view=kona_player_info&view=players_wl`;
